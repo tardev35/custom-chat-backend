@@ -1,30 +1,97 @@
-generator client {
-  provider = "prisma-client-js"
-}
-
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-model Customer {
-  line_user_id      String   @id
-  display_name      String?
-  state             String   @default("bot")
-  request_id        String?
-  type_issue        String?
-  registration_data Json?
-  last_updated      DateTime @updatedAt
-
-  messages Message[]
+generator client {
+  provider = "prisma-client-js"
 }
 
-model Message {
-  id           Int      @id @default(autoincrement())
-  line_user_id String
-  sender_type  String // "customer", "bot", "admin"
-  text_content String
-  created_at   DateTime @default(now())
+// 1. ตัวเลือกแพลตฟอร์ม (Omnichannel)
+enum Platform {
+  LINE
+  MESSENGER
+}
 
-  customer Customer @relation(fields: [line_user_id], references: [line_user_id])
+// 2. ตัวเลือกผู้ส่งข้อความ (Analytics)
+enum SenderType {
+  CUSTOMER
+  BOT
+  ADMIN
+}
+
+// 3. สถานะห้องแชท (Resolving ปิดเคส)
+enum ConversationStatus {
+  ACTIVE
+  RESOLVED
+}
+
+// ==========================================
+// 4. ตารางเก็บช่องทาง (รองรับ 15 OA / FB Pages)
+// ==========================================
+model Channel {
+  id            String         @id @default(uuid())
+  name          String // เช่น LINE OA - ยอดขาย 1, FB Page - หลัก
+  platform      Platform
+  providerId    String         @unique // LINE Channel ID หรือ FB Page ID
+  accessToken   String? // เก็บไว้ใช้ยิง API แยกแต่ละเพจ/OA
+  conversations Conversation[]
+  createdAt     DateTime       @default(now())
+}
+
+// ==========================================
+// 5. ตารางเก็บข้อมูลลูกค้า (รวมทุกช่องทาง)
+// ==========================================
+model Customer {
+  id             String         @id @default(uuid())
+  platformUserId String         @unique // LINE user_id หรือ FB scoped user_id
+  displayName    String?
+  pictureUrl     String?
+  conversations  Conversation[]
+  createdAt      DateTime       @default(now())
+}
+
+// ==========================================
+// 6. ตารางห้องแชท (ตัวคุมสวิตช์บอท และ การปิดเคส)
+// ==========================================
+model Conversation {
+  id         String             @id @default(uuid())
+  channelId  String
+  channel    Channel            @relation(fields: [channelId], references: [id])
+  customerId String
+  customer   Customer           @relation(fields: [customerId], references: [id])
+  botEnabled Boolean            @default(true) // สวิตช์ เปิด-ปิด บอท รายบุคคล!
+  status     ConversationStatus @default(ACTIVE) // เอาไว้ทำ Resolving แยกห้องแชท
+  messages   Message[]
+  updatedAt  DateTime           @updatedAt
+  createdAt  DateTime           @default(now())
+
+  @@unique([channelId, customerId]) // 1 ลูกค้า คุยกับ 1 ช่องทาง เกิดได้แค่ 1 ห้องแชทถาวร
+}
+
+// ==========================================
+// 7. ตารางเก็บประวัติแชท 100% (และ โน้ตสีเหลือง)
+// ==========================================
+model Message {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  senderType     SenderType
+  adminId        String? // เก็บว่าแอดมินคนไหนตอบ (เอาไว้ทำ Analytics)
+  admin          Admin?       @relation(fields: [adminId], references: [id])
+  textContent    String? // รองรับข้อความตัวอักษร
+  mediaUrl       String? // เผื่อส่งรูปภาพ/ไฟล์เสียง
+  isInternal     Boolean      @default(false) // TRUE = โน้ตสีเหลืองกระซิบหลังบ้าน ลูกค้าไม่เห็น!
+  createdAt      DateTime     @default(now())
+}
+
+// ==========================================
+// 8. ตารางข้อมูลแอดมินมนุษย์ (Analytics)
+// ==========================================
+model Admin {
+  id        String    @id @default(uuid())
+  username  String    @unique
+  name      String
+  messages  Message[]
+  createdAt DateTime  @default(now())
 }
