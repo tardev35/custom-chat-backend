@@ -63,27 +63,38 @@ app.get('/conversations', async (req, res) => {
 });
 
 // ----------------------------------------------------
-// 3. [เพิ่มใหม่] ประตูดึงประวัติแชท (ไปโชว์ตรงกลาง)
+// 3. ประตูดึงประวัติแชท (เอา parseInt ออกแล้ว!)
 // ----------------------------------------------------
 app.get('/messages/:convId', async (req, res) => {
-  const messages = await prisma.message.findMany({
-    where: { conversationId: parseInt(req.params.convId) },
-    orderBy: { createdAt: 'asc' }
-  });
-  res.json(messages);
+  try {
+    const messages = await prisma.message.findMany({
+      where: { conversationId: req.params.convId }, // 👈 แก้ตรงนี้ครับ
+      orderBy: { createdAt: 'asc' }
+    });
+    res.json(messages);
+  } catch (error) {
+    res.status(500).send(error.message);
+  }
 });
 
 // ----------------------------------------------------
-// 4. [เพิ่มใหม่] ประตูสลับสวิตช์ เปิด-ปิดบอท (Toggle Bot)
+// 4. ประตูสลับสวิตช์ เปิด-ปิดบอท (เอา parseInt ออกแล้ว!)
 // ----------------------------------------------------
 app.put('/conversations/:id/toggle-bot', async (req, res) => {
-  const { botEnabled } = req.body;
-  const updated = await prisma.conversation.update({
-    where: { id: parseInt(req.params.id) },
-    data: { botEnabled: botEnabled }
-  });
-  res.json(updated);
+  try {
+    const { botEnabled } = req.body;
+    const updated = await prisma.conversation.update({
+      where: { id: req.params.id }, // 👈 แก้ตรงนี้ครับ
+      data: { botEnabled: botEnabled }
+    });
+    res.json(updated);
+  } catch (error) {
+    res.status(500).send(error.message);
+  }
 });
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`🚀 API Ready on port ${PORT}`));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🚀 API Ready on port ${PORT}`));
