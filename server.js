@@ -200,6 +200,23 @@ app.put('/customers/:id/nickname', async (req, res) => {
 });
 
 // ====================================================================
+// 🚪 ประตูที่ 6: [เพิ่มใหม่] ปุ่มแอดมินกดติดแท็ก/เคลียร์แท็ก "ต้องดำเนินการ" ด้วยมือตัวเอง
+// ====================================================================
+app.put('/conversations/:id/toggle-action', async (req, res) => {
+  try {
+    const { needsAction } = req.body;
+    const updatedStatus = await prisma.conversation.update({
+      where: { id: req.params.id },
+      data: { needsAction: needsAction }
+    });
+    res.json(updatedStatus);
+  } catch (error) {
+    console.error("❌ Toggle Action Status Error:", error);
+    res.status(500).send(error.message);
+  }
+});
+
+// ====================================================================
 // 🚀 ปลุกเซิร์ฟเวอร์หลังบ้านขึ้นมาสแตนด์บายรับงานที่พอร์ต 3000
 // ====================================================================
 const PORT = process.env.PORT || 3000;
