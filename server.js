@@ -1,115 +1,89 @@
-require('dotenv').config(); // เพิ่มตัวโหลดไฟล์ .env ให้ชัวร์ 100%
+require('dotenv').config();
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
+const cors = require('cors'); // เพิ่มตัวนี้เพื่อให้ React คุยกับ Backend ได้
 
 const app = express();
 const prisma = new PrismaClient();
 
+app.use(cors()); // อนุญาตให้ React เข้าถึง API ได้
 app.use(express.json());
 
-// ป้ายต้อนรับหน้าแรก
-app.get('/', (req, res) => {
-  res.send('🔥 Backend is Running! ระบบรักษาความปลอดภัยเปิดใช้งานแล้ว!');
-});
-
-// ==========================================
-// 🚀 ช่องทางรับข้อมูล Webhook (รองรับ Omnichannel & 15 OA)
-// ==========================================
+// ----------------------------------------------------
+// 1. ประตูสำหรับ n8n (อันเดิมที่เราทำไว้)
+// ----------------------------------------------------
 app.post('/webhook', async (req, res) => {
-  // 1. ตรวจสอบรหัสความปลอดภัย
   const apiKey = req.headers['x-api-key'];
-  if (apiKey !== process.env.API_SECRET_KEY) {
-    return res.status(401).json({ error: 'Unauthorized: รหัสลับไม่ถูกต้อง' });
-  }
-
+  if (apiKey !== process.env.API_SECRET_KEY) return res.status(401).send('Unauthorized');
+  
   try {
-    const { 
-      line_user_id, 
-      display_name, 
-      sender_type, 
-      text_content,
-      provider_id,  
-      channel_name  
-    } = req.body;
+    const { line_user_id, display_name, sender_type, text_content, provider_id, channel_name } = req.body;
+    if (!line_user_id) return res.status(400).send('Missing ID');
 
-    // 🚨 ดัก Error ป้องกันแครช: ถ้า n8n ลืมส่ง line_user_id มา ให้ตีกลับทันที
-    if (!line_user_id) {
-        return res.status(400).json({ error: 'Bad Request: Missing line_user_id' });
-    }
-
-    const finalProviderId = provider_id || "DEFAULT_LINE_OA_01";
-    const finalChannelName = channel_name || "LINE OA หลัก";
-    
-    let finalSenderType = "CUSTOMER";
-    if (sender_type?.toLowerCase() === 'bot') finalSenderType = "BOT";
-    if (sender_type?.toLowerCase() === 'admin') finalSenderType = "ADMIN";
-
-    // 2. มหาเทพสเต็ป: คุยกับฐานข้อมูล 4 ตาราง
     const channel = await prisma.channel.upsert({
-      where: { providerId: finalProviderId },
-      update: { name: finalChannelName },
-      create: {
-        name: finalChannelName,
-        platform: "LINE",
-        providerId: finalProviderId
-      }
+      where: { providerId: provider_id || "DEFAULT" },
+      update: { name: channel_name || "LINE OA" },
+      create: { name: channel_name || "LINE OA", platform: "LINE", providerId: provider_id || "DEFAULT" }
     });
 
     const customer = await prisma.customer.upsert({
       where: { platformUserId: line_user_id },
       update: { displayName: display_name },
-      create: {
-        platformUserId: line_user_id,
-        displayName: display_name
-      }
+      create: { platformUserId: line_user_id, displayName: display_name }
     });
 
     const conversation = await prisma.conversation.upsert({
-      where: {
-        channelId_customerId: {
-          channelId: channel.id,
-          customerId: customer.id
-        }
-      },
+      where: { channelId_customerId: { channelId: channel.id, customerId: customer.id } },
       update: {}, 
-      create: {
-        channelId: channel.id,
-        customerId: customer.id,
-        botEnabled: true 
-      }
+      create: { channelId: channel.id, customerId: customer.id, botEnabled: true }
     });
-
-    if (!conversation.botEnabled && finalSenderType === "BOT") {
-      return res.json({ status: "ignored", message: "บอทถูกปิดใช้งานสำหรับลูกค้าคนนี้" });
-    }
 
     const newMessage = await prisma.message.create({
-      data: {
-        conversationId: conversation.id,
-        senderType: finalSenderType,
-        textContent: text_content,
-        isInternal: false 
-      }
+      data: { conversationId: conversation.id, senderType: sender_type?.toUpperCase() || "CUSTOMER", textContent: text_content }
     });
 
-    // 3. ตอบกลับ n8n
-    res.status(200).json({
-      status: "Saved successfully",
-      message_id: newMessage.id,
-      bot_enabled: conversation.botEnabled, 
-      conversation_status: conversation.status
-    });
-
-  } catch (error) {
-    console.error("❌ Webhook Error:", error);
-    res.status(500).json({ error: "Internal Server Error", details: error.message });
+    res.json({ bot_enabled: conversation.botEnabled, status: "Saved" });
+  } catch (e) {
+    res.status(500).send(e.message);
   }
 });
 
-// ==========================================
-// 🚨 จุดที่ผมตกม้าตายรอบที่แล้ว! สั่งเปิดเซิร์ฟเวอร์ที่พอร์ต 3000
-// ==========================================
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`✅ Server is running on http://localhost:${PORT}`);
+// ----------------------------------------------------
+// 2. [เพิ่มใหม่] ประตูดึงรายชื่อห้องแชท (ไปโชว์แถบซ้าย)
+// ----------------------------------------------------
+app.get('/conversations', async (req, res) => {
+  const list = await prisma.conversation.findMany({
+    include: { 
+      customer: true,
+      messages: { orderBy: { createdAt: 'desc' }, take: 1 } // ดึงข้อความล่าสุด 1 ข้อความ
+    },
+    orderBy: { updatedAt: 'desc' }
+  });
+  res.json(list);
 });
+
+// ----------------------------------------------------
+// 3. [เพิ่มใหม่] ประตูดึงประวัติแชท (ไปโชว์ตรงกลาง)
+// ----------------------------------------------------
+app.get('/messages/:convId', async (req, res) => {
+  const messages = await prisma.message.findMany({
+    where: { conversationId: parseInt(req.params.convId) },
+    orderBy: { createdAt: 'asc' }
+  });
+  res.json(messages);
+});
+
+// ----------------------------------------------------
+// 4. [เพิ่มใหม่] ประตูสลับสวิตช์ เปิด-ปิดบอท (Toggle Bot)
+// ----------------------------------------------------
+app.put('/conversations/:id/toggle-bot', async (req, res) => {
+  const { botEnabled } = req.body;
+  const updated = await prisma.conversation.update({
+    where: { id: parseInt(req.params.id) },
+    data: { botEnabled: botEnabled }
+  });
+  res.json(updated);
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`🚀 API Ready on port ${PORT}`));
