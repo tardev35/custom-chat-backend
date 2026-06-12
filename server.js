@@ -57,34 +57,37 @@ app.post('/webhook', async (req, res) => {
       create: { platformUserId: userId, displayName: displayName || "ลูกค้า LINE" }
     });
 
-    // 🛠️ STEP 2: คำนวณสถานะอัจฉริยะ (จุดเขียว/ป้ายส้ม) ประเมินตามบทบาทผู้ส่ง
-    const conversationId = `conv_${customer.platformUserId}`; // กำหนด ID ห้องแชทแบบผูกติด ID LINE เพื่อไม่ให้แชทหลุดสาย
+   // 🛠️ STEP 2 & 3: [แก้ไขใหม่ระดับ Enterprise] ค้นหาห้องแชทจาก customer.id (แก้บั๊กไอดีขัดกัน)
     let conversationUpdate = { updatedAt: new Date() };
-
     if (senderType === 'CUSTOMER') {
-      conversationUpdate.isUnread = true;      // 🟢 ลูกค้าทักมา -> เปิดไฟจุดเขียวทันที
-    } else if (senderType === 'ADMIN') {
-      conversationUpdate.isUnread = false;     // ⚪ แอดมินตอบสด -> ดับไฟจุดเขียว
-      conversationUpdate.needsAction = false;  // 🟠 แอดมินจัดการตอบเคสแล้ว -> เคลียร์ป้ายเตือน "ต้องจัดการ" ทิ้งทันที
-    } else if (senderType === 'BOT') {
-      conversationUpdate.isUnread = false;     // ⚪ บอทตอบให้แล้ว -> ดับไฟจุดเขียวตามกฎระบบ
-      if (needsActionInput) {
-        conversationUpdate.needsAction = true; // 🟠 หากบอทตรวจพบเจตนาสำคัญ (เช่น ลืมรหัส) -> ติดป้ายส้มต้องจัดการ!
-      }
+      conversationUpdate.isUnread = true;
+    } else {
+      conversationUpdate.isUnread = false;
+      conversationUpdate.needsAction = needsActionInput;
     }
 
-    // 🛠️ STEP 3: บันทึก/อัปเดตสถานะห้องสนทนาลงตาราง Conversation
-    const conversation = await prisma.conversation.upsert({
-      where: { id: conversationId },
-      create: {
-        id: conversationId,
-        customerId: customer.id,
-        botEnabled: true,
-        isUnread: senderType === 'CUSTOMER',
-        needsAction: needsActionInput
-      },
-      update: conversationUpdate
+    // ค้นหาดูก่อนว่าลูกค้าคนนี้มีห้องแชทในระบบหรือยัง (ไม่เกี่ยงว่า ID ห้องจะเป็น UUID หรือเลขอะไร)
+    let conversation = await prisma.conversation.findFirst({
+      where: { customerId: customer.id }
     });
+
+    if (!conversation) {
+      // ถ้ายังไม่มีห้องแชท ให้สร้างห้องใหม่ขึ้นมาเลย
+      conversation = await prisma.conversation.create({
+        data: {
+          customerId: customer.id,
+          botEnabled: true,
+          isUnread: senderType === 'CUSTOMER',
+          needsAction: needsActionInput
+        }
+      });
+    } else {
+      // ถ้ามีห้องแชทอยู่แล้ว (ไม่ว่าจะไอดีแบบไหน) ให้สั่งอัปเดตสถานะเข้าไปตรงๆ
+      conversation = await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: conversationUpdate
+      });
+    }
 
     // 🛠️ STEP 4: ยัดข้อความทุกเม็ดลงตาราง Message เพื่อเก็บเป็น Logs ประวัติแชทกลางจอ
     const message = await prisma.message.create({
