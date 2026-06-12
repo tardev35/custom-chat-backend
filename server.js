@@ -27,7 +27,7 @@ app.post('/webhook', async (req, res) => {
       userId = req.body.line_user_id;
       displayName = req.body.display_name;
       textContent = req.body.text_content;
-      senderType = req.body.sender_type;
+      senderType = req.body.sender_type.toUpperCase();;
     } 
     // 🔎 ฝั่งที่ B: ข้อมูลยิงตรงมาจาก LINE Official Account Webhook (โครงสร้างแบบลึก)
     else if (req.body.events && req.body.events.length > 0) {
@@ -93,7 +93,7 @@ app.post('/webhook', async (req, res) => {
     const message = await prisma.message.create({
       data: {
         conversationId: conversation.id,
-        senderType: senderType,
+        senderType: senderType.toUpperCase(),
         textContent: textContent
       }
     });
