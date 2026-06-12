@@ -216,9 +216,6 @@ app.put('/conversations/:id/toggle-action', async (req, res) => {
   }
 });
 
-// ====================================================================
-// 🚀 ปลุกเซิร์ฟเวอร์หลังบ้านขึ้นมาสแตนด์บายรับงานที่พอร์ต 3000
-// ====================================================================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`\n🚀 [CRM Server ร่างทองครบสูบ] Engine is running smoothly on port ${PORT}`);
