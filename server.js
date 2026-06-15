@@ -232,7 +232,11 @@ app.post('/webhook', async (req, res) => {
       });
     }
 
-    res.json({ success: true, message });
+    res.json({ 
+      success: true, 
+      message: message,
+      bot_enabled: conversation.botEnabled 
+    });
   } catch (error) {
     console.error("❌ Webhook Error:", error);
     res.status(500).send(error.message);
