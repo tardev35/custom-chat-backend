@@ -14,8 +14,6 @@ model Admin {
   name          String
   conversations Conversation[]
   messages      Message[]
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
 }
 
 model Channel {
@@ -25,8 +23,6 @@ model Channel {
   providerId    String         @unique
   accessToken   String?
   conversations Conversation[]
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
 }
 
 model Customer {
