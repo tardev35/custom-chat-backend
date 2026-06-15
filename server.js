@@ -31,12 +31,11 @@ app.post('/channels', async (req, res) => {
   }
 });
 
+
 // 2. ดึงรายชื่อช่องทาง LINE OA ทั้งหมดไปโชว์ในหน้าตั้งค่า และ Dropdown หน้าแชท
 app.get('/channels', async (req, res) => {
   try {
-    const channels = await prisma.channel.findMany({
-      orderBy: { createdAt: 'desc' }
-    });
+    const channels = await prisma.channel.findMany(); // 🟢 ดึงมาตรงๆ เลย ไม่ต้องสั่งเรียงตามวันที่แล้วครับ
     res.json(channels);
   } catch (error) {
     res.status(500).send(error.message);
