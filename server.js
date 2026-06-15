@@ -14,50 +14,73 @@ app.use(express.json());
 const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN || "eeDp68WfJfHPbIam/pB0zQVU5j2km9rx+sKV1JhPZd6YR30UWdb7rvULFOMPIBwaUa16CDuMnQcXzdbINKXvwe5mhyvH1lytfRybmBj0PhUGYUZrrgHsWl/i5szFJrW2ZVlnHwBk6+0rOimx0voVzAdB04t89/1O/w1cDnyilFU=";
 
 // ====================================================================
-// 🚪 ประตูที่ 1: ศูนย์รวมรับส่งข้อมูลกลาง (The Ultimate Webhook Router)
-// รองรับ: LINE Webhook ดิบลอย, n8n Sync Bot, และแอดมิน React พิมพ์คุยสด
+// 🔑 [เพิ่มใหม่] ประตูสมัครบัญชีแอดมิน (Admin Register)
+// ====================================================================
+app.post('/register', async (req, res) => {
+  try {
+    const { username, password, name } = req.body;
+    if (!username || !password || !name) return res.status(400).send("ข้อมูลไม่ครบ");
+
+    const newAdmin = await prisma.admin.create({
+      data: { username, password, name } // 💡 โน้ต: โปรดักชันจริงควรใช้ bcrypt ครอบรหัสผ่านนะครับ
+    });
+    res.json({ success: true, admin: { id: newAdmin.id, name: newAdmin.name } });
+  } catch (error) {
+    res.status(400).send("Username นี้ถูกใช้ไปแล้วครับ");
+  }
+});
+
+// ====================================================================
+// 🔑 [เพิ่มใหม่] ประตูตรวจสอบรหัสผ่านล็อกอิน (Admin Login)
+// ====================================================================
+app.post('/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    const admin = await prisma.admin.findUnique({ where: { username } });
+
+    if (!admin || admin.password !== password) {
+      return res.status(401).json({ success: false, message: "Username หรือ รหัสผ่านไม่ถูกต้อง" });
+    }
+    res.json({ success: true, admin: { id: admin.id, name: admin.name, username: admin.username } });
+  } catch (error) {
+    res.status(500).send(error.message);
+  }
+});
+
+// ====================================================================
+// 🚪 ประตูที่ 1: [ปรับปรุงใหม่] ศูนย์รวมรับส่งข้อมูลกลาง (Webhook Router)
 // ====================================================================
 app.post('/webhook', async (req, res) => {
   try {
-    let userId, displayName, textContent, senderType;
-    let needsActionInput = req.body.needsAction === true; // รับติ่งคำสั่งตรวจสอบเคสสำคัญ (เช่น ลืมรหัสผ่าน)
+    let userId, displayName, textContent, senderType, adminId;
+    let needsActionInput = req.body.needsAction === true;
 
-    // 🔎 ฝั่งที่ A: ตรวจสอบว่าข้อมูลยิงมาจากหน้าจอ React หรือ n8n (ส่งโครงสร้างแบบแบนมา)
     if (req.body.sender_type) {
       userId = req.body.line_user_id;
       displayName = req.body.display_name;
       textContent = req.body.text_content;
-      senderType = req.body.sender_type.toUpperCase();;
-    } 
-    // 🔎 ฝั่งที่ B: ข้อมูลยิงตรงมาจาก LINE Official Account Webhook (โครงสร้างแบบลึก)
-    else if (req.body.events && req.body.events.length > 0) {
+      senderType = req.body.sender_type.toUpperCase();
+      adminId = req.body.admin_id; // 🟢 รับไอดีแอดมินส่งมาจากหน้าจอ React
+    } else if (req.body.events && req.body.events.length > 0) {
       const event = req.body.events[0];
-      
-      // ดักจับเฉพาะประเภทข้อความที่เป็น Text เท่านั้น
       if (event.type === 'message' && event.message.type === 'text') {
         userId = event.source.userId;
         textContent = event.message.text;
         senderType = 'CUSTOMER';
-        displayName = "ลูกค้า LINE"; // บันทึกชื่อชั่วคราว เดี๋ยวโหนด getUserLine ใน n8n จะมาอัปเดตชื่อจริงให้เอง
+        displayName = "ลูกค้า LINE";
       } else {
-        // หากลูกค้าส่งสติกเกอร์ หรือรูปภาพมา ให้ตอบรับ 200 เพื่อปิดลูปไว้ก่อน ระบบจะได้ไม่ค้าง
         return res.json({ success: true, message: "Non-text event ignored" });
       }
     }
 
-    // ป้องกันกรณีระบบยิงมาแบบข้อมูลว่างเปล่า
-    if (!userId || !textContent) {
-      return res.status(400).send("Missing required parameters: userId or textContent");
-    }
+    if (!userId || !textContent) return res.status(400).send("Missing parameters");
 
-    // 🛠️ STEP 1: บันทึก/อัปเดตข้อมูลประวัติลูกค้าลงตาราง Customer
     const customer = await prisma.customer.upsert({
       where: { platformUserId: userId },
       update: displayName && displayName !== "ลูกค้า LINE" ? { displayName } : {},
       create: { platformUserId: userId, displayName: displayName || "ลูกค้า LINE" }
     });
 
-   // 🛠️ STEP 2 & 3: [แก้ไขใหม่ระดับ Enterprise] ค้นหาห้องแชทจาก customer.id (แก้บั๊กไอดีขัดกัน)
     let conversationUpdate = { updatedAt: new Date() };
     if (senderType === 'CUSTOMER') {
       conversationUpdate.isUnread = true;
@@ -66,65 +89,52 @@ app.post('/webhook', async (req, res) => {
       conversationUpdate.needsAction = needsActionInput;
     }
 
-    // ค้นหาดูก่อนว่าลูกค้าคนนี้มีห้องแชทในระบบหรือยัง (ไม่เกี่ยงว่า ID ห้องจะเป็น UUID หรือเลขอะไร)
-    let conversation = await prisma.conversation.findFirst({
-      where: { customerId: customer.id }
-    });
-
+    let conversation = await prisma.conversation.findFirst({ where: { customerId: customer.id } });
     if (!conversation) {
-      // ถ้ายังไม่มีห้องแชท ให้สร้างห้องใหม่ขึ้นมาเลย
       conversation = await prisma.conversation.create({
-        data: {
-          customerId: customer.id,
-          botEnabled: true,
-          isUnread: senderType === 'CUSTOMER',
-          needsAction: needsActionInput
-        }
+        data: { customerId: customer.id, botEnabled: true, isUnread: senderType === 'CUSTOMER', needsAction: needsActionInput }
       });
     } else {
-      // ถ้ามีห้องแชทอยู่แล้ว (ไม่ว่าจะไอดีแบบไหน) ให้สั่งอัปเดตสถานะเข้าไปตรงๆ
-      conversation = await prisma.conversation.update({
-        where: { id: conversation.id },
-        data: conversationUpdate
-      });
+      conversation = await prisma.conversation.update({ where: { id: conversation.id }, data: conversationUpdate });
     }
 
-    // 🛠️ STEP 4: ยัดข้อความทุกเม็ดลงตาราง Message เพื่อเก็บเป็น Logs ประวัติแชทกลางจอ
+    // ⏱️ [ไม้ตายคำนวณเวลาร่างทอง] ถ้าเป็นแอดมินตอบ ให้หาเวลาชนกับข้อความลูกค้าล่าสุด
+    let calculatedResponseTime = null;
+    if (senderType === 'ADMIN') {
+      const lastCustomerMessage = await prisma.message.findFirst({
+        where: { conversationId: conversation.id, senderType: 'CUSTOMER' },
+        orderBy: { createdAt: 'desc' }
+      });
+      if (lastCustomerMessage) {
+        // หาผลต่างเวลา (หน่วยมิลลิวินาที) แปลงเป็นวินาที
+        const diffMs = new Date() - new Date(lastCustomerMessage.createdAt);
+        calculatedResponseTime = Math.floor(diffMs / 1000); 
+      }
+    }
+
+    // ยัดข้อมูลลงตาราง Message พร้อมสถิติแอดมิน
     const message = await prisma.message.create({
       data: {
         conversationId: conversation.id,
-        senderType: senderType.toUpperCase(),
-        textContent: textContent
+        senderType: senderType,
+        textContent: textContent,
+        adminId: senderType === 'ADMIN' ? adminId : null, // ฝังผลงานแอดมินคนส่ง
+        responseTime: calculatedResponseTime            // ฝังเวลาความไวสปีดเก้า
       }
     });
 
-    // 🚀 STEP 5: [ไม้ตายคุยสด] ถ้าแอดมินพิมพ์ตอบเอง ให้หลังบ้านยิงข้ามมิติเข้าแอป LINE บนมือถือลูกค้าทันที
     if (senderType === 'ADMIN') {
-      try {
-        await axios.post('https://api.line.me/v2/bot/message/push', {
-          to: userId,
-          messages: [{ type: 'text', text: textContent }]
-        }, {
-          headers: {
-            'Authorization': `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`,
-            'Content-Type': 'application/json'
-          }
-        });
-      } catch (lineError) {
-        console.error("❌ LINE Push API Error Details:", lineError.response?.data || lineError.message);
-        return res.status(500).json({ 
-          success: false, 
-          error: "LINE Push Failed", 
-          details: lineError.response?.data 
-        });
-      }
+      await axios.post('https://api.line.me/v2/bot/message/push', {
+        to: userId,
+        messages: [{ type: 'text', text: textContent }]
+      }, {
+        headers: { 'Authorization': `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`, 'Content-Type': 'application/json' }
+      });
     }
 
-    // ส่งสัญญาณตอบกลับว่าระบบบันทึกและรันข้อมูลผ่านฉลุย
     res.json({ success: true, message });
-
   } catch (error) {
-    console.error("❌ Global Webhook Router Error:", error);
+    console.error("❌ Webhook Error:", error);
     res.status(500).send(error.message);
   }
 });
