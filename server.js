@@ -43,6 +43,26 @@ app.get('/channels', async (req, res) => {
   }
 });
 
+// [เพิ่มใหม่] อัปเดตข้อมูล LINE OA บัญชีเดิม (แก้ไขชื่อ / Token)
+app.put('/channels/:id', async (req, res) => {
+  try {
+    const { name, providerId, accessToken } = req.body;
+    const updated = await prisma.channel.update({
+      where: { id: req.params.id },
+      data: { name, providerId, accessToken }
+    });
+    res.json(updated);
+  } catch (error) { res.status(500).send(error.message); }
+});
+
+// [เพิ่มใหม่] ลบบัญชี LINE OA ออกจากระบบ
+app.delete('/channels/:id', async (req, res) => {
+  try {
+    await prisma.channel.delete({ where: { id: req.params.id } });
+    res.json({ success: true });
+  } catch (error) { res.status(500).send(error.message); }
+});
+
 // ====================================================================
 // 🔑 [ระบบสถิติแอดมิน] ตรวจสอบสิทธิ์และล็อกอิน (Authentication)
 // ====================================================================
