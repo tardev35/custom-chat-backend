@@ -1,116 +1,72 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-generator client {
-  provider = "prisma-client-js"
+model Admin {
+  id            String         @id @default(uuid())
+  username      String         @unique
+  password      String
+  name          String
+  conversations Conversation[]
+  messages      Message[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 }
 
-// ==========================================
-// Enums - ตัวเลือกคงที่ระบบควบคุมสถานะ
-// ==========================================
-
-// 1. ตัวเลือกแพลตฟอร์ม (Omnichannel)
-enum Platform {
-  LINE
-  MESSENGER
-}
-
-// 2. ตัวเลือกผู้ส่งข้อความ (Analytics)
-enum SenderType {
-  CUSTOMER
-  BOT
-  ADMIN
-  INTERNAL_NOTE // รองรับประเภทโน้ตเหลืองหลังบ้าน เพื่อความชัวร์ในระดับระบบ
-}
-
-// 3. สถานะห้องแชท (Resolving ปิดเคสเหมือน Pedpro)
-enum ConversationStatus {
-  ACTIVE // กำลังคุย / ต้องดำเนินการ
-  RESOLVED // ดำเนินการแล้ว / ปิดเคสแล้ว
-}
-
-// ==========================================
-// 4. ตารางเก็บช่องทาง (รองรับ 15 OA / FB Pages)
-// ==========================================
 model Channel {
   id            String         @id @default(uuid())
-  name          String // เช่น LINE OA - ยอดขาย 1, FB Page - หลัก
-  platform      Platform
-  providerId    String         @unique // LINE Channel ID หรือ FB Page ID
-  accessToken   String? // เก็บไว้ใช้ยิง API แยกแต่ละเพจ/OA จากหลังบ้าน Vultr
+  name          String
+  platform      String         @default("LINE")
+  providerId    String         @unique
+  accessToken   String?
   conversations Conversation[]
   createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 }
 
-// ==========================================
-// 5. ตารางเก็บข้อมูลลูกค้า (รวมทุกช่องทาง)
-// ==========================================
 model Customer {
   id             String         @id @default(uuid())
-  platformUserId String         @unique // LINE user_id หรือ FB scoped user_id
+  platformUserId String         @unique
   displayName    String?
-  nickname       String? // สำหรับระบบ CRM ตั้งชื่อเล่น/Username เว็บลูกค้า
-  pictureUrl     String?
+  nickname       String?
+  tags           String         @default("") // 🟢 เพิ่มระบบแท็กเก็บป้ายกำกับ
   conversations  Conversation[]
   createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
 }
 
-// ==========================================
-// 6. ตารางห้องแชท (ตัวคุมสวิตช์บอท การปิดเคส และการมอบหมายงาน)
-// ==========================================
 model Conversation {
-  id          String             @id @default(uuid())
-  botEnabled  Boolean            @default(true)
-  isUnread    Boolean            @default(false) // 🟢 ควบคุมไฟจุดเขียวแจ้งเตือน
-  needsAction Boolean            @default(false) // 🟠 ควบคุมป้ายส้ม "ต้องจัดการ" (ลืมรหัสผ่าน)
-  status      ConversationStatus @default(ACTIVE) // 🔘 ACTIVE = หน้าหลัก, RESOLVED = แท็บดำเนินการแล้ว
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
-
-  customerId String
-  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
-
-  channelId String? // เชื่อมโยงว่าแชทนี้วิ่งมาจาก LINE OA ไหนจาก 15 ตัว
-  channel   Channel? @relation(fields: [channelId], references: [id], onDelete: SetNull)
-
-  // 👥 ระบบ Assign งานแบบในรูป Pedpro (ของฉัน / ยังไม่มอบหมาย)
-  assigneeId String? // แอดมินมนุษย์ที่กำลังรับผิดชอบเคสนี้อยู่ปัจจุบัน
-  assignee   Admin?  @relation("AdminConversations", fields: [assigneeId], references: [id], onDelete: SetNull)
-
-  messages Message[]
+  id          String    @id @default(uuid())
+  customerId  String    @unique
+  customer    Customer  @relation(fields: [customerId], references: [id])
+  channelId   String?
+  channel     Channel?  @relation(fields: [channelId], references: [id])
+  assigneeId  String?
+  assignee    Admin?    @relation(fields: [assigneeId], references: [id])
+  botEnabled  Boolean   @default(true)
+  needsAction Boolean   @default(false)
+  isUnread    Boolean   @default(true)
+  status      String    @default("ACTIVE")
+  messages    Message[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 }
 
-// ==========================================
-// 7. ตารางเก็บประวัติแชท 100% (Analytics + โน้ตเหลือง)
-// ==========================================
 model Message {
   id             String       @id @default(uuid())
   conversationId String
-  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  senderType     SenderType
-  textContent    String? // รองรับข้อความตัวอักษร
-  mediaUrl       String? // เผื่อส่งรูปภาพ/ไฟล์เสียง/สติกเกอร์
-  isInternal     Boolean      @default(false) // 🟡 TRUE = โน้ตสีเหลืองกระซิบหลังบ้าน ลูกค้าไม่เห็น!
-
-  // 📊 ส่วนงานสถิติแอดมิน (Performance Analytics)
-  adminId      String? // เก็บว่าแอดมินคนไหนเป็นคนตอบประโยคนี้
-  admin        Admin?  @relation(fields: [adminId], references: [id], onDelete: SetNull)
-  responseTime Int? // ความไวสปีดเก้าในการตอบกลับ (หน่วยเป็น: วินาที) เอาไว้ดึงไปพลอตกราฟ
-
-  createdAt DateTime @default(now())
-}
-
-// ==========================================
-// 8. ตารางข้อมูลแอดมินมนุษย์ (Authentication & Analytics)
-// ==========================================
-model Admin {
-  id            String         @id @default(uuid())
-  username      String         @unique // สำหรับใช้กรอกชื่อล็อกอินเข้าหน้าจอ CRM
-  password      String // สำหรับเช็ครหัสผ่านล็อกอินเข้าใช้งาน
-  name          String // ชื่อที่จะโชว์บนหน้าจอแชท (เช่น แอดมินวุฒิ, แอดมินเก่ง)
-  messages      Message[] // ลิงก์ย้อนกลับประวัติเพื่อเอาไปนับจำนวนแชทที่ตอบต่อวัน
-  conversations Conversation[] @relation("AdminConversations") // ห้องแชทที่กำลังรับผิดชอบอยู่ (แชทของฉัน)
-  createdAt     DateTime       @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  senderType     String // 🟢 เก็บค่า CUSTOMER, ADMIN, BOT, INTERNAL_NOTE
+  textContent    String
+  mediaUrl       String?
+  isInternal     Boolean      @default(false)
+  adminId        String?
+  admin          Admin?       @relation(fields: [adminId], references: [id])
+  responseTime   Int?
+  createdAt      DateTime     @default(now())
 }
