@@ -9,14 +9,11 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ❌ ลบ const LINE_CHANNEL_ACCESS_TOKEN แบบเก่าทิ้งถาวร! 
-// หลังบ้านจะยึดระบบดึงจากฐานข้อมูล Postgres ตามไอดีแบรนด์อัตโนมัติ
-
 // ====================================================================
-// 🔑 ⚙️ [เพิ่มใหม่สำหรับ 15 OA] ระบบบริหารจัดการช่องทาง (Channel Management)
+// ⚙️ [ระบบ 15 OA] บริหารจัดการช่องทางร้านค้า (Channel Management)
 // ====================================================================
 
-// 1. ประตูบันทึก LINE OA หรือ Facebook Page บัญชีใหม่เข้าฐานข้อมูล
+// 1. บันทึก/อัปเดต LINE OA บัญชีใหม่เข้าฐานข้อมูล (ผูก Token แบบไดนามิก)
 app.post('/channels', async (req, res) => {
   try {
     const { name, platform, providerId, accessToken } = req.body;
@@ -34,7 +31,7 @@ app.post('/channels', async (req, res) => {
   }
 });
 
-// 2. ประตูดึงรายชื่อช่องทางทั้งหมดโชว์บนหน้าจอตั้งค่า และ Dropdown บนหน้าแชท
+// 2. ดึงรายชื่อช่องทาง LINE OA ทั้งหมดไปโชว์ในหน้าตั้งค่า และ Dropdown หน้าแชท
 app.get('/channels', async (req, res) => {
   try {
     const channels = await prisma.channel.findMany({
@@ -47,36 +44,56 @@ app.get('/channels', async (req, res) => {
 });
 
 // ====================================================================
-// 🔑 ประตูระบบล็อกอินแอดมินเดิม (คงสภาพปกติ)
+// 🔑 [ระบบสถิติแอดมิน] ตรวจสอบสิทธิ์และล็อกอิน (Authentication)
 // ====================================================================
+
+// 3. ประตูสมัครสมาชิกแอดมิน (เอาไว้ใช้เบิกไอดีเพิ่มทีมงาน)
+app.post('/register', async (req, res) => {
+  try {
+    const { username, password, name } = req.body;
+    if (!username || !password || !name) return res.status(400).send("ข้อมูลไม่ครบ");
+
+    const newAdmin = await prisma.admin.create({
+      data: { username, password, name }
+    });
+    res.json({ success: true, admin: { id: newAdmin.id, name: newAdmin.name } });
+  } catch (error) {
+    res.status(400).send("Username นี้ถูกใช้ไปแล้วครับ");
+  }
+});
+
+// 4. ประตูตรวจสอบรหัสผ่านล็อกอินแอดมินดักหน้า UI
 app.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
     const admin = await prisma.admin.findUnique({ where: { username } });
+
     if (!admin || admin.password !== password) {
       return res.status(401).json({ success: false, message: "Username หรือ รหัสผ่านไม่ถูกต้อง" });
     }
     res.json({ success: true, admin: { id: admin.id, name: admin.name, username: admin.username } });
-  } catch (error) { res.status(500).send(error.message); }
+  } catch (error) {
+    res.status(500).send(error.message);
+  }
 });
 
 // ====================================================================
-// 🚪 ประตูที่ 1: ศูนย์รวมรับส่งข้อมูลกลาง (The Dynamic Webhook Router)
+// 🚪 [ประตูหลัก] ศูนย์รวมรับส่งข้อมูลแชทกลาง (The Dynamic Webhook Router)
 // ====================================================================
 app.post('/webhook', async (req, res) => {
   try {
     let userId, displayName, textContent, senderType, adminId, incomingProviderId;
     let needsActionInput = req.body.needsAction === true;
 
-    // 🔎 ฝั่งที่ A: ข้อมูลยิงมาจากหน้าจอ React ของแอดมิน (จังหวะแอดมินพิมพ์ส่งคุยสด)
+    // 🔎 ฝั่งที่ A: ข้อมูลยิงมาจากหน้าจอ React ของแอดมิน (จังหวะแอดมินพิมพ์คุยสด)
     if (req.body.sender_type) {
       userId = req.body.line_user_id;
       displayName = req.body.display_name;
       textContent = req.body.text_content;
-      senderType = req.body.sender_type.toUpperCase();
-      adminId = req.body.admin_id;
+      senderType = req.body.sender_type.toUpperCase(); // กันบั๊กตัวเล็กตัวใหญ่
+      adminId = req.body.admin_id; // ไอดีแอดมินผู้ส่งงานปัจจุบัน
     } 
-    // 🔎 ฝั่งที่ B: ข้อมูลวิ่งมาจากระบบ LINE Webhook จริงของลูกค้า (ทักมาจาก 1 ใน 15 OA)
+    // 🔎 ฝั่งที่ B: ข้อความวิ่งมาจาก LINE OA จริงของลูกค้า (ทักมาจาก 1 ใน 15 บัญชี)
     else if (req.body.events && req.body.events.length > 0) {
       const event = req.body.events[0];
       if (event.type === 'message' && event.message.type === 'text') {
@@ -85,8 +102,7 @@ app.post('/webhook', async (req, res) => {
         senderType = 'CUSTOMER';
         displayName = "ลูกค้า LINE";
         
-        // 🎯 ดักจับไอดีของ OA ต้นทางที่ไลน์ส่งพ่วงมาให้ เพื่อระบุตัวตนแบรนด์
-        // หมายเหตุ: n8n สามารถส่งค่านี้มาทาง URL query หรือ JSON structure ได้เลยครับ
+        // ดักจับไอดีของ OA ต้นทางที่ไลน์ส่งพ่วงมาให้ (เช่น ส่งผ่าน Query n8n มา)
         incomingProviderId = req.query.provider_id || req.body.provider_id;
       } else {
         return res.json({ success: true, message: "Non-text event ignored" });
@@ -95,31 +111,33 @@ app.post('/webhook', async (req, res) => {
 
     if (!userId || !textContent) return res.status(400).send("Missing parameters");
 
-    // 🛠️ STEP 1: เซฟลูกค้าลงดีบีตามสูตรปกติ
+    // 🛠️ STEP 1: บันทึกข้อมูลลูกค้าลงฐานข้อมูล
     const customer = await prisma.customer.upsert({
       where: { platformUserId: userId },
       update: displayName && displayName !== "ลูกค้า LINE" ? { displayName } : {},
       create: { platformUserId: userId, displayName: displayName || "ลูกค้า LINE" }
     });
 
-    // 🛠️ STEP 2: ค้นหาช่องทางแบรนด์ (Channel Mapping) ในระบบ
+    // 🛠️ STEP 2: ค้นหาช่องทางแบรนด์คู่ค้า (Channel Mapping)
     let targetedChannel = null;
     if (incomingProviderId) {
       targetedChannel = await prisma.channel.findUnique({ where: { providerId: incomingProviderId } });
     }
 
-    // 🛠️ STEP 3: ตรวจสอบและซิงค์ห้องแชท (Dynamic Routing)
+    // 🛠️ STEP 3: ตรวจสอบห้องแชทและอัปเดตสถานะ (Auto-Assign & แท็บ Pedpro)
     let conversationUpdate = { updatedAt: new Date() };
     
     if (senderType === 'CUSTOMER') {
       conversationUpdate.isUnread = true;
-      conversationUpdate.status = 'ACTIVE';
+      conversationUpdate.status = 'ACTIVE'; // ลูกค้าทักมาใหม่ ดันเข้าหน้าหลักเสมอ
       if (targetedChannel) conversationUpdate.channelId = targetedChannel.id; // ผูกห้องเข้ากับ OA ต้นทาง
     } else {
       conversationUpdate.isUnread = false;
       conversationUpdate.needsAction = needsActionInput;
+      
+      // ออโต้มอบหมายงาน: แอดมินมนุษย์คนไหนพิมพ์ตอบ ล็อกสิทธิ์ห้องนี้เป็นแชท "ของฉัน" ทันที
       if (senderType === 'ADMIN' && adminId) {
-        conversationUpdate.assigneeId = adminId; // ออโต้มอบหมายงานให้คนพิมพ์ตอบ
+        conversationUpdate.assigneeId = adminId;
       }
     }
 
@@ -136,7 +154,6 @@ app.post('/webhook', async (req, res) => {
         }
       });
     } else {
-      // ดักเคสพิเศษ: เผื่อห้องเก่าไม่มีแชนแนลผูกไว้ ให้เติมแชนแนลเข้าไปด้วย
       if (targetedChannel && !conversation.channelId) {
         conversationUpdate.channelId = targetedChannel.id;
       }
@@ -146,7 +163,7 @@ app.post('/webhook', async (req, res) => {
       });
     }
 
-    // ⏱️ [Analytics] คำนวณความไวในการตอบกลับของแอดมิน
+    // ⏱️ [สถิติความเร็ว] คำนวณเวลาที่ใช้ตอบกลับ (Response Time) ของแอดมิน
     let calculatedResponseTime = null;
     if (senderType === 'ADMIN') {
       const lastCustomerMessage = await prisma.message.findFirst({
@@ -155,11 +172,11 @@ app.post('/webhook', async (req, res) => {
       });
       if (lastCustomerMessage) {
         const diffMs = new Date() - new Date(lastCustomerMessage.createdAt);
-        calculatedResponseTime = Math.floor(diffMs / 1000);
+        calculatedResponseTime = Math.floor(diffMs / 1000); // แปลงเป็นวินาทีเพื่อทำกราฟ
       }
     }
 
-    // 🛠️ STEP 4: บันทึกข้อมูลข้อความลงในตาราง Message
+    // 🛠️ STEP 4: บันทึกประวัติข้อความลงตาราง Message ทุกเม็ด 100%
     const message = await prisma.message.create({
       data: {
         conversationId: conversation.id,
@@ -167,13 +184,12 @@ app.post('/webhook', async (req, res) => {
         textContent: textContent,
         adminId: senderType === 'ADMIN' ? adminId : null,
         responseTime: calculatedResponseTime,
-        isInternal: senderType === 'INTERNAL_NOTE'
+        isInternal: senderType === 'INTERNAL_NOTE' // แยกหมวดโน้ตเหลืองหลังบ้าน
       }
     });
 
-    // 🛠️ STEP 5: [ทีเด็ดพระกาฬ 15 OA] ดึง Token ไดนามิก ยิงกระจายข้อความคืนหาลูกค้าจริงตามแบรนด์
+    // 🛠️ STEP 5: สลับ Token ไดนามิก ยิงกระจายข้อความแอดมินคืนสู่แอป LINE ลูกค้าจริง
     if (senderType === 'ADMIN') {
-      // ดึงความสัมพันธ์ห้องแชทออกมาเบิกตัว Token ล่าสุด
       const currentConv = await prisma.conversation.findUnique({
         where: { id: conversation.id },
         include: { channel: true }
@@ -182,8 +198,7 @@ app.post('/webhook', async (req, res) => {
       const dynamicToken = currentConv?.channel?.accessToken;
 
       if (!dynamicToken) {
-        console.error(`❌ ไม่สามารถส่งไลน์ได้เนื่องจากห้องแชทนี้ยังไม่ได้ผูกสิทธิ์เข้าตาราง Channel หรือ Token ว่างเปล่า`);
-        return res.status(400).send("ห้องแชทนี้ยังไม่ได้รับการตั้งค่าผูกสิทธิ์ LINE OA ในระบบ");
+        return res.status(400).send("ห้องแชทนี้ยังไม่ได้รับการตั้งค่าผูกสิทธิ์ LINE OA ในระบบตั้งค่าระบบ");
       }
 
       await axios.post('https://api.line.me/v2/bot/message/push', {
@@ -191,7 +206,7 @@ app.post('/webhook', async (req, res) => {
         messages: [{ type: 'text', text: textContent }]
       }, {
         headers: { 
-          'Authorization': `Bearer ${dynamicToken}`, // 🔥 สับสวิตช์ใช้ Token ไดนามิกสำเร็จ!
+          'Authorization': `Bearer ${dynamicToken}`, // 🔥 สลับหัวฉีด Token สำเร็จ!
           'Content-Type': 'application/json' 
         }
       });
@@ -199,21 +214,23 @@ app.post('/webhook', async (req, res) => {
 
     res.json({ success: true, message });
   } catch (error) {
-    console.error("❌ Dynamic Webhook Error:", error);
+    console.error("❌ Webhook Error:", error);
     res.status(500).send(error.message);
   }
 });
 
 // ====================================================================
-// 🚪 ประตูที่ 2: ดึงรายชื่อห้องแชททั้งหมด (รวมตัวแปรผูกมิตรช่องทาง)
+// 🚪 [ประตูข้อมูล UI] ดึงข้อมูลรายชื่อแชทและประวัติการคุย
 // ====================================================================
+
+// 5. ดึงรายชื่อห้องแชททั้งหมด (พ่วงระบบแยกแบรนด์ 15 OA และคนรับผิดชอบเคส)
 app.get('/conversations', async (req, res) => {
   try {
     const conversations = await prisma.conversation.findMany({
       include: {
         customer: true,
-        channel: true,  // ดึงชื่อแบรนด์ไปโชว์ป้ายกำกับหน้า UI ซ้ายมือ
-        assignee: true, // ดึงคนรับผิดชอบเคส
+        channel: true,  
+        assignee: true, 
         messages: {
           orderBy: { createdAt: 'desc' },
           take: 1
@@ -222,12 +239,12 @@ app.get('/conversations', async (req, res) => {
       orderBy: { updatedAt: 'desc' }
     });
     res.json(conversations);
-  } catch (error) { res.status(500).send(error.message); }
+  } catch (error) {
+    res.status(500).send(error.message);
+  }
 });
 
-// ====================================================================
-// 🚪 ประตูที่ 3: ดึงประวัติแชทฉบับเต็มคัดเรียงตามเวลา
-// ====================================================================
+// 6. ดึงประวัติแชทห้องปัจจุบันฉบับเต็มเรียงตามเวลา (พร้อมล้างออโต้จุดเขียว)
 app.get('/messages/:conversationId', async (req, res) => {
   try {
     const { conversationId } = req.params;
@@ -241,12 +258,16 @@ app.get('/messages/:conversationId', async (req, res) => {
       include: { admin: true }
     });
     res.json(chatHistory);
-  } catch (error) { res.status(500).send(error.message); }
+  } catch (error) {
+    res.status(500).send(error.message);
+  }
 });
 
 // ====================================================================
-// 🚪 ประตูที่ 4-8: ควบคุมสวิตช์ย่อย CRM (สลับบอท, ปิดเคส, ยึดเคส)
+// 🎛️ [ประตูควบคุมสวิตช์ CRM] เปลี่ยนค่ารายบุคคลตามปุ่มหน้า UI React
 // ====================================================================
+
+// 7. สลับสถานะเปิด-ปิด บอทตอบแทนรายบุคคล
 app.put('/conversations/:id/toggle-bot', async (req, res) => {
   try {
     const updated = await prisma.conversation.update({ where: { id: req.params.id }, data: { botEnabled: req.body.botEnabled } });
@@ -254,6 +275,7 @@ app.put('/conversations/:id/toggle-bot', async (req, res) => {
   } catch (error) { res.status(500).send(error.message); }
 });
 
+// 8. สลับป้ายส้มเตือน "ต้องดำเนินการ" (เช่น ลูกค้าลืมรหัสผ่าน)
 app.put('/conversations/:id/toggle-action', async (req, res) => {
   try {
     const updated = await prisma.conversation.update({ where: { id: req.params.id }, data: { needsAction: req.body.needsAction } });
@@ -261,6 +283,7 @@ app.put('/conversations/:id/toggle-action', async (req, res) => {
   } catch (error) { res.status(500).send(error.message); }
 });
 
+// 9. อัปเดตตั้งชื่อเล่น/ชื่อบันทึกของลูกค้าในระบบหลังบ้าน CRM
 app.put('/customers/:id/nickname', async (req, res) => {
   try {
     const updated = await prisma.customer.update({ where: { id: req.params.id }, data: { nickname: req.body.nickname } });
@@ -268,6 +291,7 @@ app.put('/customers/:id/nickname', async (req, res) => {
   } catch (error) { res.status(500).send(error.message); }
 });
 
+// 10. ระบบปิดเคส/เปิดงานใหม่ (สลับแท็บ ACTIVE / RESOLVED แบบ Pedpro)
 app.put('/conversations/:id/status', async (req, res) => {
   try {
     const updated = await prisma.conversation.update({ where: { id: req.params.id }, data: { status: req.body.status } });
@@ -275,7 +299,18 @@ app.put('/conversations/:id/status', async (req, res) => {
   } catch (error) { res.status(500).send(error.message); }
 });
 
+// 11. ระบบกดรับเรื่องมอบหมายงานคุมเคสลูกค้า (แชทของฉัน / ปลดมอบหมาย)
 app.put('/conversations/:id/assign', async (req, res) => {
   try {
     const updated = await prisma.conversation.update({ where: { id: req.params.id }, data: { assigneeId: req.body.adminId } });
     res.json(updated);
+  } catch (error) { res.status(500).send(error.message); }
+});
+
+// ====================================================================
+// 🚀 สั่งเปิดประตูมิติตั้งตารับสายแชททั่วสารทิศ
+// ====================================================================
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 เอนจิ้นคุมพลังไดนามิก 15 OA & แอดมิน Analytics พร้อมลุยที่พอร์ต ${PORT}`);
+});
