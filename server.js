@@ -112,6 +112,7 @@ app.post('/webhook', async (req, res) => {
       textContent = req.body.text_content;
       senderType = req.body.sender_type.toUpperCase(); // กันบั๊กตัวเล็กตัวใหญ่
       adminId = req.body.admin_id; // ไอดีแอดมินผู้ส่งงานปัจจุบัน
+      incomingProviderId = req.body.provider_id;
     } 
     // 🔎 ฝั่งที่ B: ข้อความวิ่งมาจาก LINE OA จริงของลูกค้า (ทักมาจาก 1 ใน 15 บัญชี)
     else if (req.body.events && req.body.events.length > 0) {
