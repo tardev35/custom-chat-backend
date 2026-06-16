@@ -371,6 +371,48 @@ app.put('/conversations/:id/assign', async (req, res) => {
 });
 
 // ====================================================================
+// ✨ [AI Co-Pilot] ระบบช่วยร่างคำตอบด้วย AI (ส่งไป n8n)
+// ====================================================================
+app.post('/draft-response', async (req, res) => {
+  try {
+    const { conversationId } = req.body;
+
+    // 1. ดึงประวัติแชทล่าสุด (เอาสัก 10 ข้อความ) เพื่อให้ AI เข้าใจบริบทว่าคุยอะไรกันอยู่
+    const recentMessages = await prisma.message.findMany({
+      where: { conversationId: conversationId },
+      orderBy: { createdAt: 'desc' }, // ดึงจากใหม่ไปเก่า
+      take: 10
+    });
+
+    // กลับด้านให้เป็น "เก่าไปใหม่" เพื่อให้ AI อ่านรู้เรื่องเหมือนมนุษย์
+    recentMessages.reverse();
+
+    // 2. จัดรูปแบบข้อความเพื่อส่งให้ n8n นำไปวิเคราะห์
+    const chatContext = recentMessages.map(m => {
+      const sender = m.senderType === 'CUSTOMER' ? 'ลูกค้า' : 'แอดมิน/บอท';
+      return `${sender}: ${m.textContent}`;
+    }).join('\n');
+
+    // =========================================================
+    // ⚠️ ท่อนนี้เตรียมไว้ยิงไป n8n (คุณพี่ต้องไปทำ Webhook ใน n8n มารับครับ)
+    // const n8nResponse = await axios.post('https://ลิงก์-webhook-n8n-ของคุณพี่', {
+    //   history: chatContext
+    // });
+    // const aiText = n8nResponse.data.suggestedText;
+    // =========================================================
+
+    // 🟢 [จำลองข้อมูลชั่วคราว] เพื่อให้คุณพี่เทสต์หน้า UI ได้ทันทีโดยไม่ต้องรอ n8n 
+    const mockDraftText = `สวัสดีค่ะคุณลูกค้า จากที่สอบถามมา น้องแอดมินขออนุญาตแนะนำข้อมูลเพิ่มเติมดังนี้นะคะ ✨\n\n(AI อ่านบริบทจาก ${recentMessages.length} ข้อความล่าสุดมาให้แล้วค่ะ!)`;
+
+    res.json({ success: true, draftText: mockDraftText }); // ส่งคำตอบกลับไปที่หน้าจอแอดมิน
+
+  } catch (error) {
+    console.error("❌ Draft Response Error:", error);
+    res.status(500).send(error.message);
+  }
+});
+
+// ====================================================================
 // 🚀 สั่งเปิดประตูมิติตั้งตารับสายแชททั่วสารทิศ
 // ====================================================================
 const PORT = process.env.PORT || 3000;
