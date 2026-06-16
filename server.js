@@ -253,35 +253,49 @@ app.post('/webhook', async (req, res) => {
 // 🚪 [ประตูข้อมูล UI] ดึงข้อมูลรายชื่อแชทและประวัติการคุย
 // ====================================================================
 
-// 7. ดึงรายชื่อห้องแชททั้งหมด (พ่วงระบบแยกแบรนด์ 15 OA และรวมข้อมูลคนคุมเคส)
+// 7. ดึงรายชื่อห้องแชททั้งหมด
 app.get('/conversations', async (req, res) => {
   try {
     const conversations = await prisma.conversation.findMany({
       include: {
         customer: true,
         channel: true,  
-        assignee: true, // 🟢 ดึงชื่อแอดมินติดพ่วงไปด้วยกันบั๊กป้ายชื่อไม่ขึ้น
+        assignee: true, 
         messages: {
           orderBy: { createdAt: 'desc' },
           take: 1
         }
-      },
-      orderBy: { updatedAt: 'desc' }
+      }
+      // 🟢 นำ orderBy: { updatedAt: 'desc' } ตรงนี้ออกไปเลยครับ
     });
+
+    // 🟢 [เพิ่มลоจิกมหาเทพ] สั่งเรียงลำดับตามเวลาของข้อความล่าสุดสดๆ ก่อนส่งออกไป หน้าจอจะนิ่งสนิท!
+    conversations.sort((a, b) => {
+      const timeA = a.messages[0] ? new Date(a.messages[0].createdAt) : new Date(a.createdAt);
+      const timeB = b.messages[0] ? new Date(b.messages[0].createdAt) : new Date(b.createdAt);
+      return timeB - timeA; // ข้อความใหม่สุดอยู่บนสุดเสมอ 
+    });
+
     res.json(conversations);
   } catch (error) {
     res.status(500).send(error.message);
   }
 });
 
-// 8. ดึงประวัติแชทห้องปัจจุบันฉบับเต็มเรียงตามเวลา (พร้อมล้างออโต้จุดเขียว)
+// 8. ดึงประวัติแชทห้องปัจจุบันฉบับเต็มเรียงตามเวลา
 app.get('/messages/:conversationId', async (req, res) => {
   try {
     const { conversationId } = req.params;
-    await prisma.conversation.update({
-      where: { id: conversationId },
-      data: { isUnread: false }
-    });
+
+    // 🟢 [แก้ไขตรงนี้] เช็คก่อนว่าห้องแชทนี้เป็น Unread หรือไม่ ถ้าใช่ถึงค่อยล้างจุดเขียว เวลาจะได้ไม่ขยับมั่วซั่ว
+    const currentConv = await prisma.conversation.findUnique({ where: { id: conversationId } });
+    if (currentConv && currentConv.isUnread) {
+      await prisma.conversation.update({
+        where: { id: conversationId },
+        data: { isUnread: false }
+      });
+    }
+
     const chatHistory = await prisma.message.findMany({
       where: { conversationId: conversationId },
       orderBy: { createdAt: 'asc' },
