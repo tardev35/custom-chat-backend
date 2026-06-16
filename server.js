@@ -269,11 +269,17 @@ app.get('/conversations', async (req, res) => {
       // 🟢 นำ orderBy: { updatedAt: 'desc' } ตรงนี้ออกไปเลยครับ
     });
 
-    // 🟢 [เพิ่มลоจิกมหาเทพ] สั่งเรียงลำดับตามเวลาของข้อความล่าสุดสดๆ ก่อนส่งออกไป หน้าจอจะนิ่งสนิท!
+   // 🟢 [แก้ไขลอจิก] สั่งเรียงลำดับตามเวลาของข้อความล่าสุดสดๆ ก่อนส่งออกไป
     conversations.sort((a, b) => {
-      const timeA = a.messages[0] ? new Date(a.messages[0].createdAt) : new Date(a.createdAt);
-      const timeB = b.messages[0] ? new Date(b.messages[0].createdAt) : new Date(b.createdAt);
-      return timeB - timeA; // ข้อความใหม่สุดอยู่บนสุดเสมอ 
+      // ใช้ .getTime() เพื่อให้เปรียบเทียบตัวเลขมิลลิวินาทีได้แม่นยำขึ้น
+      const timeA = a.messages[0] ? new Date(a.messages[0].createdAt).getTime() : new Date(a.createdAt).getTime();
+      const timeB = b.messages[0] ? new Date(b.messages[0].createdAt).getTime() : new Date(b.createdAt).getTime();
+      
+      // ล็อกเป้าความเสถียร: ถ้าเวลาเท่ากันเป๊ะ ให้เรียงตามตัวอักษรของ ID แทน ป้องกันการสลับที่มั่วซั่ว
+      if (timeB === timeA) {
+        return a.id.localeCompare(b.id);
+      }
+      return timeB - timeA; // ข้อความใหม่สุดอยู่บนสุด
     });
 
     res.json(conversations);
