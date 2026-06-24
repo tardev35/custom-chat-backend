@@ -9,6 +9,31 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+const fs = require('fs');
+const path = require('path');
+const multer = require('multer');
+
+// 1. สร้างโฟลเดอร์ uploads สำหรับเก็บรูปภาพ
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
+
+// 2. เปิดให้หน้า React สามารถดึงรูปในโฟลเดอร์นี้ไปโชว์ได้
+app.use('/uploads', express.static(uploadDir));
+
+// 3. ตั้งค่าการเซฟไฟล์ (ใช้ชื่อไฟล์เดิมที่ n8n ปั้นมาให้เลย)
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, uploadDir),
+  filename: (req, file, cb) => cb(null, file.originalname)
+});
+const upload = multer({ storage: storage });
+
+// 4. สร้าง API ประตูรับไฟล์จาก n8n
+app.post('/upload-image', upload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).send("No file uploaded");
+  // ตอบกลับเป็นลิงก์ปลายทางเพื่อให้ n8n เอาไปใช้งานต่อ
+  res.json({ imageUrl: `/uploads/${req.file.filename}` }); 
+});
+
 // ====================================================================
 // ⚙️ [ระบบ 15 OA] บริหารจัดการช่องทางร้านค้า (Channel Management - CRUD)
 // ====================================================================
