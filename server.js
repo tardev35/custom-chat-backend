@@ -132,6 +132,7 @@ app.post('/webhook', async (req, res) => {
   try {
     let userId, displayName, textContent, senderType, adminId, incomingProviderId;
     let needsActionInput = req.body.needsAction === true;
+    let stateInput = req.body.state;
 
     // 🔎 ฝั่งที่ A: ข้อมูลยิงมาจากหน้าจอ React ของแอดมิน หรือยิงมาจากบอท n8n
     if (req.body.sender_type) {
@@ -175,6 +176,12 @@ app.post('/webhook', async (req, res) => {
 
     // 🛠️ STEP 3: ตรวจสอบห้องแชทและอัปเดตสถานะ (Auto-Assign & แท็บสไตล์ Pedpro)
     let conversationUpdate = { updatedAt: new Date() };
+
+    // 🟢 [เพิ่มบล็อกนี้] ถ้า n8n ส่งคำว่า agent มา ให้ปิดบอท และติดป้ายส้มแจ้งเตือนแอดมินทันที!
+    if (stateInput === 'agent') {
+      conversationUpdate.botEnabled = false; // ปิดสวิตช์บอท 100%
+      conversationUpdate.needsAction = true; // ติดป้ายแดงเตือนให้แอดมินรู้ว่าต้องรีบมาดูสลิป
+    }
     
     if (senderType === 'CUSTOMER') {
       conversationUpdate.isUnread = true;
