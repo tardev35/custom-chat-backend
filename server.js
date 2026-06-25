@@ -163,22 +163,27 @@ app.delete('/admins/:id', async (req, res) => {
 // ====================================================================
 // 🚪 [ประตูหลัก] ศูนย์รวมรับส่งข้อมูลแชทกลาง (The Dynamic Webhook Router)
 // ====================================================================
+// ====================================================================
+// 🚪 [ประตูหลัก] ศูนย์รวมรับส่งข้อมูลแชทกลาง (The Dynamic Webhook Router)
+// ====================================================================
 app.post('/webhook', async (req, res) => {
   try {
-    let userId, displayName, textContent, senderType, adminId, incomingProviderId;
+    // 🟢 1. เพิ่มตัวแปร pictureUrl มารอรับค่าตรงนี้ครับ
+    let userId, displayName, textContent, senderType, adminId, incomingProviderId, pictureUrl; 
     let needsActionInput = req.body.needsAction === true;
     let stateInput = req.body.state;
 
-    // 🔎 ฝั่งที่ A: ข้อมูลยิงมาจากหน้าจอ React ของแอดมิน หรือยิงมาจากบอท n8n
+    // 🔎 ฝั่งที่ A: ข้อมูลยิงมาจากบอท n8n
     if (req.body.sender_type) {
       userId = req.body.line_user_id;
       displayName = req.body.display_name;
       textContent = req.body.text_content;
-      senderType = req.body.sender_type.toUpperCase(); // แอดมิน = ADMIN, บอท = BOT
+      senderType = req.body.sender_type.toUpperCase(); 
       adminId = req.body.admin_id; 
-      incomingProviderId = req.body.provider_id; // รับค่า Channel ID จาก n8n เพื่อเอาไปคัดกรองแยกสาขา
+      incomingProviderId = req.body.provider_id; 
+      pictureUrl = req.body.pictureUrl; // 🟢 2. สั่งให้รับค่า pictureUrl จาก n8n
     } 
-    // 🔎 ฝั่งที่ B: ข้อความวิ่งมาจาก LINE OA จริงของลูกค้า (ทักมาจาก 1 ใน 15 บัญชี)
+    // 🔎 ฝั่งที่ B: ข้อความวิ่งมาจาก LINE OA จริง
     else if (req.body.events && req.body.events.length > 0) {
       const event = req.body.events[0];
       if (event.type === 'message' && event.message.type === 'text') {
@@ -186,8 +191,6 @@ app.post('/webhook', async (req, res) => {
         textContent = event.message.text;
         senderType = 'CUSTOMER';
         displayName = "ลูกค้า LINE";
-        
-        // ดักจับไอดีของ OA ต้นทางที่ไลน์ส่งพ่วงมาให้
         incomingProviderId = req.query.provider_id || req.body.provider_id;
       } else {
         return res.json({ success: true, message: "Non-text event ignored" });
@@ -196,11 +199,18 @@ app.post('/webhook', async (req, res) => {
 
     if (!userId || !textContent) return res.status(400).send("Missing parameters");
 
-    // 🛠️ STEP 1: บันทึกข้อมูลลูกค้าลงฐานข้อมูล
+    // 🛠️ STEP 1: บันทึกข้อมูลลูกค้าลงฐานข้อมูล (🟢 3. อัปเดตคำสั่งเซฟลง Prisma)
     const customer = await prisma.customer.upsert({
       where: { platformUserId: userId },
-      update: displayName && displayName !== "ลูกค้า LINE" ? { displayName } : {},
-      create: { platformUserId: userId, displayName: displayName || "ลูกค้า LINE" }
+      update: {
+        ...(displayName && displayName !== "ลูกค้า LINE" ? { displayName } : {}),
+        ...(pictureUrl ? { pictureUrl } : {}) // 👈 ถ้ารอบนี้มีรูปล่าสุดส่งมา ให้อัปเดตทับรูปเก่าด้วย
+      },
+      create: { 
+        platformUserId: userId, 
+        displayName: displayName || "ลูกค้า LINE",
+        pictureUrl: pictureUrl || null // 👈 ถ้าเป็นลูกค้าใหม่เพิ่งทักครั้งแรก ให้เซฟรูปลงไปด้วยเลย
+      }
     });
 
     // 🛠️ STEP 2: ค้นหาช่องทางแบรนด์คู่ค้า (Channel Mapping)
