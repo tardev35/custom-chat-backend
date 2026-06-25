@@ -30,6 +30,7 @@ model Customer {
   platformUserId String         @unique
   displayName    String?
   nickname       String?
+  pictureUrl     String?
   tags           String         @default("") // 🟢 เพิ่มระบบแท็กเก็บป้ายกำกับ
   conversations  Conversation[]
   createdAt      DateTime       @default(now())
