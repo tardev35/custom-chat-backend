@@ -111,6 +111,11 @@ app.post('/register', async (req, res) => {
 });
 
 // 6. ประตูตรวจสอบรหัสผ่านล็อกอินแอดมินดักหน้า UI
+// ====================================================================
+// 👥 [ระบบพนักงาน] จัดการสิทธิ์และรายชื่อแอดมิน (เข้าได้เฉพาะ HEAD)
+// ====================================================================
+
+// 1. [อัปเดต] แก้ไขประตู Login ให้ส่งค่า role กลับไปให้ React ด้วย
 app.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -119,10 +124,40 @@ app.post('/login', async (req, res) => {
     if (!admin || admin.password !== password) {
       return res.status(401).json({ success: false, message: "Username หรือ รหัสผ่านไม่ถูกต้อง" });
     }
-    res.json({ success: true, admin: { id: admin.id, name: admin.name, username: admin.username } });
+    // 🟢 ส่ง role กลับไปให้ React เช็คสิทธิ์
+    res.json({ success: true, admin: { id: admin.id, name: admin.name, username: admin.username, role: admin.role } });
   } catch (error) {
     res.status(500).send(error.message);
   }
+});
+
+// 2. ดึงรายชื่อพนักงานทั้งหมด (ไม่ส่ง Password กลับไปเพื่อความปลอดภัย)
+app.get('/admins', async (req, res) => {
+  try {
+    const admins = await prisma.admin.findMany({
+      select: { id: true, username: true, name: true, role: true }
+    });
+    res.json(admins);
+  } catch (error) { res.status(500).send(error.message); }
+});
+
+// 3. เพิ่มพนักงานใหม่ (ให้ HEAD สร้าง)
+app.post('/admins', async (req, res) => {
+  try {
+    const { username, password, name, role } = req.body;
+    const newAdmin = await prisma.admin.create({
+      data: { username, password, name, role: role || 'STAFF' }
+    });
+    res.json({ success: true, newAdmin });
+  } catch (error) { res.status(400).send("Username นี้ซ้ำกับในระบบครับ"); }
+});
+
+// 4. ลบพนักงาน
+app.delete('/admins/:id', async (req, res) => {
+  try {
+    await prisma.admin.delete({ where: { id: req.params.id } });
+    res.json({ success: true });
+  } catch (error) { res.status(500).send(error.message); }
 });
 
 // ====================================================================

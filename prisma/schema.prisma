@@ -12,6 +12,7 @@ model Admin {
   username      String         @unique
   password      String
   name          String
+  role          String         @default("STAFF")
   conversations Conversation[]
   messages      Message[]
 }
