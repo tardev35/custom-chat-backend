@@ -38,47 +38,54 @@ app.post('/upload-image', upload.single('file'), (req, res) => {
 // ⚙️ [ระบบ 15 OA] บริหารจัดการช่องทางร้านค้า (Channel Management - CRUD)
 // ====================================================================
 
-// 1. บันทึก/อัปเดต LINE OA บัญชีใหม่เข้าฐานข้อมูล (ผูก Token แบบไดนามิก)
+const fetchLineBotProfile = async (token) => {
+  try {
+    const res = await axios.get('https://api.line.me/v2/bot/info', {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    return res.data.pictureUrl; // จะได้ลิงก์รูปภาพกลับมา (ถ้าตั้งไว้ในแอปเขียว)
+  } catch (error) {
+    console.log("⚠️ ไม่สามารถดึงรูปโปรไฟล์บอทได้ (อาจจะ Token ผิด หรือไม่ได้ตั้งรูป)");
+    return null;
+  }
+};
+
+// 1. บันทึกช่องทางใหม่ (พร้อมดูดรูปอัตโนมัติ)
 app.post('/channels', async (req, res) => {
   try {
     const { name, platform, providerId, accessToken } = req.body;
-    if (!name || !platform || !providerId) return res.status(400).send("ข้อมูลไม่ครบถ้วน");
+    if (!name || !providerId) return res.status(400).send("ข้อมูลไม่ครบถ้วน");
 
-    const channel = await prisma.channel.upsert({
-      where: { providerId: providerId },
-      update: { name, accessToken },
-      create: { name, platform, providerId, accessToken }
+    const botPictureUrl = await fetchLineBotProfile(accessToken); // 🟢 ดูดรูป
+
+    const channel = await prisma.channel.create({
+      data: { name, platform, providerId, accessToken, pictureUrl: botPictureUrl }
     });
     res.json({ success: true, channel });
-  } catch (error) {
-    console.error("❌ Add Channel Error:", error);
-    res.status(500).send(error.message);
-  }
+  } catch (error) { res.status(500).send(error.message); }
 });
 
 
-// 2. ดึงรายชื่อช่องทาง LINE OA ทั้งหมดไปโชว์ในหน้าตั้งค่า และ Dropdown หน้าแชท
+// 2. ดึงรายชื่อช่องทางไปโชว์
 app.get('/channels', async (req, res) => {
   try {
-    const channels = await prisma.channel.findMany(); // 🟢 ดึงมาตรงๆ เลย ไม่ต้องสั่งเรียงตามวันที่แล้วครับ
+    const channels = await prisma.channel.findMany({ orderBy: { createdAt: 'asc' }});
     res.json(channels);
-  } catch (error) {
-    res.status(500).send(error.message);
-  }
+  } catch (error) { res.status(500).send(error.message); }
 });
 
-// 3. [อัปเดตใหม่] แก้ไขข้อมูล LINE OA บัญชีเดิม (แก้ไขชื่อ / Token)
+// 3. อัปเดตข้อมูลช่องทางเดิม (และอัปเดตรูปใหม่ด้วย)
 app.put('/channels/:id', async (req, res) => {
   try {
     const { name, providerId, accessToken } = req.body;
+    const botPictureUrl = await fetchLineBotProfile(accessToken); // 🟢 ดูดรูปใหม่เผื่อเขาเปลี่ยนรูป
+
     const updated = await prisma.channel.update({
       where: { id: req.params.id },
-      data: { name, providerId, accessToken }
+      data: { name, providerId, accessToken, pictureUrl: botPictureUrl }
     });
     res.json(updated);
-  } catch (error) { 
-    res.status(500).send(error.message); 
-  }
+  } catch (error) { res.status(500).send(error.message); }
 });
 
 // 4. [อัปเดตใหม่] ลบบัญชี LINE OA ออกจากระบบ

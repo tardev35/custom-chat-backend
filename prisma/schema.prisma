@@ -23,6 +23,7 @@ model Channel {
   platform      String         @default("LINE")
   providerId    String         @unique
   accessToken   String?
+  pictureUrl    String? // 🟢 เพิ่มฟิลด์นี้เพื่อเก็บลิงก์รูปร้าน
   conversations Conversation[]
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
