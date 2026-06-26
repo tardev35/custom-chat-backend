@@ -286,7 +286,9 @@ app.post('/webhook', async (req, res) => {
         textContent: textContent,
         adminId: senderType === 'ADMIN' ? adminId : null,
         responseTime: calculatedResponseTime,
-        isInternal: senderType === 'INTERNAL_NOTE' 
+        isInternal: senderType === 'INTERNAL_NOTE',
+        aiDraftText: req.body.ai_draft_text || null,
+        isDraftEdited: req.body.is_draft_edited || false
       }
     });
 

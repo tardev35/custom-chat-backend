@@ -59,12 +59,17 @@ model Message {
   id             String       @id @default(uuid())
   conversationId String
   conversation   Conversation @relation(fields: [conversationId], references: [id])
-  senderType     String // 🟢 เก็บค่า CUSTOMER, ADMIN, BOT, INTERNAL_NOTE
-  textContent    String
+  senderType     String // เก็บค่า CUSTOMER, ADMIN, BOT, INTERNAL_NOTE
+  textContent    String // ข้อความสุดท้ายที่ส่งให้ลูกค้าจริงๆ
   mediaUrl       String?
   isInternal     Boolean      @default(false)
   adminId        String?
   admin          Admin?       @relation(fields: [adminId], references: [id])
   responseTime   Int?
-  createdAt      DateTime     @default(now())
+
+  // 🟢 [อัปเดตใหม่] ระบบ AI Co-Pilot Feedback Loop
+  aiDraftText   String? // เก็บข้อความ "ต้นฉบับ" ที่ AI ร่างมาให้ (ถ้าแอดมินกดใช้ปุ่ม ✨)
+  isDraftEdited Boolean @default(false) // True = แอดมินแก้ข้อความ, False = กดส่งเลยโดยไม่แก้
+
+  createdAt DateTime @default(now())
 }
