@@ -24,6 +24,25 @@ model Channel {
   providerId    String         @unique
   accessToken   String?
   conversations Conversation[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  cardTemplates CardTemplate[]
+}
+
+model CardTemplate {
+  id          String  @id @default(uuid())
+  title       String // ชื่อโปรโมชั่น เช่น "โปรฝาก 100", "เลขบัญชี"
+  description String? // คำอธิบายให้แอดมินดู
+  msgType     String // ประเภท: 'image' (รูปภาพ), 'flex' (การ์ดเดี่ยว), 'carousel' (สไลด์เลื่อน)
+  imageUrl    String? // เก็บลิงก์รูป (ถ้า msgType เป็น 'image')
+  flexPayload String? @db.Text // เก็บโค้ด JSON จาก LINE (ถ้า msgType เป็น flex/carousel)
+  altText     String? // ข้อความแจ้งเตือนบนมือถือลูกค้า เช่น "💳 มีการ์ดถึงคุณ"
+
+  channelId String
+  channel   Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Customer {

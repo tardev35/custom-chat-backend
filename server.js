@@ -92,6 +92,63 @@ app.delete('/channels/:id', async (req, res) => {
 });
 
 // ====================================================================
+// 💳 [ระบบคลังการ์ด] บริหารจัดการ Promotion & Flex Message
+// ====================================================================
+
+// 1. ดึงคลังการ์ดทั้งหมดของสาขานั้นๆ (แอดมินใช้ตอนเปิด Modal ส่งการ์ด)
+app.get('/channels/:channelId/templates', async (req, res) => {
+  try {
+    const templates = await prisma.cardTemplate.findMany({
+      where: { channelId: req.params.channelId },
+      orderBy: { createdAt: 'desc' }
+    });
+    res.json(templates);
+  } catch (error) {
+    res.status(500).send(error.message);
+  }
+});
+
+// 2. สร้างการ์ดโปรโมชั่นใหม่ (HEAD ใช้ในหน้า Settings)
+app.post('/templates', async (req, res) => {
+  try {
+    const { title, description, msgType, imageUrl, flexPayload, altText, channelId } = req.body;
+    
+    // ตรวจสอบข้อมูลให้ชัวร์
+    if (!title || !msgType || !channelId) {
+      return res.status(400).send("ข้อมูลบังคับไม่ครบถ้วน (title, msgType, channelId)");
+    }
+
+    const newTemplate = await prisma.cardTemplate.create({
+      data: {
+        title,
+        description,
+        msgType, // 'image', 'flex', หรือ 'carousel'
+        imageUrl,
+        flexPayload,
+        altText,
+        channelId
+      }
+    });
+    res.json({ success: true, template: newTemplate });
+  } catch (error) {
+    console.error("❌ Create Template Error:", error);
+    res.status(500).send(error.message);
+  }
+});
+
+// 3. ลบการ์ดโปรโมชั่น (เมื่อหมดเขต)
+app.delete('/templates/:id', async (req, res) => {
+  try {
+    await prisma.cardTemplate.delete({
+      where: { id: req.params.id }
+    });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).send(error.message);
+  }
+});
+
+// ====================================================================
 // 🔑 [ระบบแอดมิน] ตรวจสอบสิทธิ์และล็อกอิน (Authentication)
 // ====================================================================
 
@@ -318,7 +375,7 @@ app.post('/webhook', async (req, res) => {
       } else if (msgType === 'flex' && req.body.flex_payload) {
         lineMessagePayload = { 
           type: 'flex', 
-          altText: "💳 มีการ์ดส่งถึงคุณ", 
+          altText: "🎁 โปรโมชั่นพิเศษ", 
           contents: req.body.flex_payload 
         };
       }
