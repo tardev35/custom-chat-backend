@@ -43,23 +43,28 @@ const fetchLineBotProfile = async (token) => {
     const res = await axios.get('https://api.line.me/v2/bot/info', {
       headers: { Authorization: `Bearer ${token}` }
     });
-    return res.data.pictureUrl; // จะได้ลิงก์รูปภาพกลับมา (ถ้าตั้งไว้ในแอปเขียว)
+    return {
+      pictureUrl: res.data.pictureUrl,
+      displayName: res.data.displayName // 👈 ดูดชื่อออฟฟิเชียลมาด้วย
+    };
   } catch (error) {
-    console.log("⚠️ ไม่สามารถดึงรูปโปรไฟล์บอทได้ (อาจจะ Token ผิด หรือไม่ได้ตั้งรูป)");
-    return null;
+    console.log("⚠️ ไม่สามารถดึงข้อมูลบอทได้");
+    return { pictureUrl: null, displayName: null };
   }
 };
 
-// 1. บันทึกช่องทางใหม่ (พร้อมดูดรูปอัตโนมัติ)
+// 1. บันทึกช่องทางใหม่ (ดูดรูปและชื่ออัตโนมัติ)
 app.post('/channels', async (req, res) => {
   try {
-    const { name, platform, providerId, accessToken } = req.body;
-    if (!name || !providerId) return res.status(400).send("ข้อมูลไม่ครบถ้วน");
+    const { platform, providerId, accessToken } = req.body;
+    if (!providerId || !accessToken) return res.status(400).send("ข้อมูลไม่ครบถ้วน");
 
-    const botPictureUrl = await fetchLineBotProfile(accessToken); // 🟢 ดูดรูป
+    const botInfo = await fetchLineBotProfile(accessToken);
+    // 🟢 ถ้าระบบดูดชื่อมาได้ ให้ใช้ชื่อนั้นเลย ถ้าไม่ได้ค่อยใช้ชื่อที่พิมพ์มา
+    const finalName = botInfo.displayName || req.body.name || "Unknown OA";
 
     const channel = await prisma.channel.create({
-      data: { name, platform, providerId, accessToken, pictureUrl: botPictureUrl }
+      data: { name: finalName, platform, providerId, accessToken, pictureUrl: botInfo.pictureUrl }
     });
     res.json({ success: true, channel });
   } catch (error) { res.status(500).send(error.message); }
@@ -74,15 +79,18 @@ app.get('/channels', async (req, res) => {
   } catch (error) { res.status(500).send(error.message); }
 });
 
-// 3. อัปเดตข้อมูลช่องทางเดิม (และอัปเดตรูปใหม่ด้วย)
+// 3. อัปเดตข้อมูลช่องทางเดิม
 app.put('/channels/:id', async (req, res) => {
   try {
     const { name, providerId, accessToken } = req.body;
-    const botPictureUrl = await fetchLineBotProfile(accessToken); // 🟢 ดูดรูปใหม่เผื่อเขาเปลี่ยนรูป
+    const botInfo = await fetchLineBotProfile(accessToken); 
+    
+    // 🟢 ถ้าอยากให้ชื่ออัปเดตตาม LINE ตลอดเวลา ใช้ botInfo.displayName
+    const finalName = botInfo.displayName || name;
 
-    const updated = await prisma.channel.update({
+    const updated = await prisma.update({
       where: { id: req.params.id },
-      data: { name, providerId, accessToken, pictureUrl: botPictureUrl }
+      data: { name: finalName, providerId, accessToken, pictureUrl: botInfo.pictureUrl }
     });
     res.json(updated);
   } catch (error) { res.status(500).send(error.message); }
