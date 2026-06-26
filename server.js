@@ -305,15 +305,34 @@ app.post('/webhook', async (req, res) => {
         return res.status(400).send("ห้องแชทนี้ยังไม่ได้รับการตั้งค่าผูกสิทธิ์ LINE OA ในระบบตั้งค่าระบบ");
       }
 
+      // 🟢 [อัปเดตใหม่] เตรียม Payload สำหรับยิงเข้า LINE (รองรับ Text, Image, Flex)
+      let msgType = req.body.msg_type || 'text';
+      let lineMessagePayload = { type: 'text', text: textContent };
+
+      if (msgType === 'image' && req.body.image_url) {
+        lineMessagePayload = { 
+          type: 'image', 
+          originalContentUrl: req.body.image_url, 
+          previewImageUrl: req.body.image_url 
+        };
+      } else if (msgType === 'flex' && req.body.flex_payload) {
+        lineMessagePayload = { 
+          type: 'flex', 
+          altText: "💳 มีการ์ดส่งถึงคุณ", 
+          contents: req.body.flex_payload 
+        };
+      }
+
+      // ยิงข้อมูลหาลูกค้า
       await axios.post('https://api.line.me/v2/bot/message/push', {
         to: userId,
-        messages: [{ type: 'text', text: textContent }]
+        messages: [lineMessagePayload]
       }, {
         headers: { 
           'Authorization': `Bearer ${dynamicToken}`, 
           'Content-Type': 'application/json' 
         }
-      }).catch(err => console.error("❌ Line Push Notification Error"));
+      }).catch(err => console.error("❌ Line Push Notification Error", err.response?.data));
     }
 
     // ส่งสถานะสวิตช์บอทล่าสุดกลับไปให้ n8n นำไปเข้าเงื่อนไข IF Node
