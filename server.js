@@ -472,18 +472,16 @@ app.post('/draft-response', async (req, res) => {
       return `${sender}: ${m.textContent}`;
     }).join('\n');
 
-    // =========================================================
-    // ⚠️ ท่อนนี้เตรียมไว้ยิงไป n8n (คุณพี่ต้องไปทำ Webhook ใน n8n มารับครับ)
-    // const n8nResponse = await axios.post('https://ลิงก์-webhook-n8n-ของคุณพี่', {
-    //   history: chatContext
-    // });
-    // const aiText = n8nResponse.data.suggestedText;
-    // =========================================================
+  // 3. ยิงไปหา n8n AI Draft (เอา Mock ออกแล้วใช้ของจริง)
+    const n8nResponse = await axios.post('https://linedevbot.vip/webhook/ai-draft', {
+      history: chatContext,
+      conversationId: conversationId
+    });
 
-    // 🟢 [จำลองข้อมูลชั่วคราว] เพื่อให้คุณพี่เทสต์หน้า UI ได้ทันทีโดยไม่ต้องรอ n8n 
-    const mockDraftText = `สวัสดีค่ะคุณลูกค้า จากที่สอบถามมา น้องแอดมินขออนุญาตแนะนำข้อมูลเพิ่มเติมดังนี้นะคะ ✨\n\n(AI อ่านบริบทจาก ${recentMessages.length} ข้อความล่าสุดมาให้แล้วค่ะ!)`;
-
-    res.json({ success: true, draftText: mockDraftText }); // ส่งคำตอบกลับไปที่หน้าจอแอดมิน
+    // 4. รับข้อความที่ AI ร่างเสร็จแล้วส่งกลับไปที่ React
+    const aiText = n8nResponse.data.suggestedText;
+    
+    res.json({ success: true, draftText: aiText });
 
   } catch (error) {
     console.error("❌ Draft Response Error:", error);
