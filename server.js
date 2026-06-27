@@ -436,47 +436,67 @@ app.post('/draft-response', async (req, res) => {
 });
 
 // ====================================================================
-// 📊 [ระบบ Analytics] แดชบอร์ดผู้บริหาร & KPI แอดมิน (หมวดที่ 5)
+// 📊 [ระบบ Analytics ร่างทอง] แดชบอร์ดผู้บริหาร & KPI แอดมิน (หมวดที่ 5)
 // ====================================================================
 app.get('/analytics', async (req, res) => {
   try {
-    // 1. Bot Deflection & Cost Saving (เทียบจากจำนวนข้อความ)
-    const totalMessages = await prisma.message.count({ where: { senderType: { in: ['BOT', 'ADMIN'] } } });
-    const botMessages = await prisma.message.count({ where: { senderType: 'BOT' } });
-    const adminMessages = await prisma.message.count({ where: { senderType: 'ADMIN' } });
+    const { channelId } = req.query; // รับค่าสาขาจากหน้าเว็บ
 
-    // 2. Admin Leaderboard & KPI (จัดอันดับ + ความเร็ว)
-    const admins = await prisma.admin.findMany({
-      include: {
-        messages: {
-          where: { senderType: 'ADMIN' },
-          select: { responseTime: true }
-        }
-      }
+    // 🟢 สร้างเงื่อนไขตัวกรอง: ถ้าเลือก ALL ก็ไม่ต้องกรอง ถ้าเลือกสาขา ก็ให้หาเฉพาะแชทของสาขานั้น
+    const convFilter = channelId && channelId !== 'ALL' ? { channelId: channelId } : {};
+
+    // 1. Bot Deflection & Cost Saving (กรองตามสาขา)
+    const totalMessages = await prisma.message.count({ 
+      where: { senderType: { in: ['BOT', 'ADMIN'] }, conversation: convFilter } 
+    });
+    const botMessages = await prisma.message.count({ 
+      where: { senderType: 'BOT', conversation: convFilter } 
+    });
+    const adminMessages = await prisma.message.count({ 
+      where: { senderType: 'ADMIN', conversation: convFilter } 
     });
 
-    const leaderboard = admins.map(admin => {
-      const answered = admin.messages.length;
-      const validTimes = admin.messages.filter(m => m.responseTime !== null).map(m => m.responseTime);
+    // 2. Admin Leaderboard & KPI (กรองเฉพาะข้อความที่แอดมินตอบในสาขานั้นๆ)
+    const admins = await prisma.admin.findMany();
+    
+    const leaderboard = await Promise.all(admins.map(async (admin) => {
+      const actualAdminMessages = await prisma.message.findMany({
+        where: {
+          adminId: admin.id,
+          senderType: 'ADMIN',
+          responseTime: { not: null },
+          conversation: convFilter // 🔥 กรองเฉพาะแชทที่มาจาก OA ที่เลือก
+        },
+        select: { responseTime: true }
+      });
+
+      const answered = actualAdminMessages.length;
+      const validTimes = actualAdminMessages.map(m => m.responseTime);
       const avgResponseTime = validTimes.length > 0 ? Math.floor(validTimes.reduce((a, b) => a + b, 0) / validTimes.length) : 0;
       
       let performance = '⚡ สปีดเทพมาก';
       let colorClass = 'text-green-600 bg-green-50';
-      if (avgResponseTime > 300) { // เกิน 5 นาที (300 วินาที)
+      
+      if (answered === 0) {
+        performance = '💤 สแตนด์บาย';
+        colorClass = 'text-gray-500 bg-gray-50';
+      } else if (avgResponseTime > 300) {
         performance = '🔴 ช้าเกินเกณฑ์';
         colorClass = 'text-red-600 bg-red-50';
-      } else if (avgResponseTime > 60) { // 1-5 นาที
+      } else if (avgResponseTime > 60) {
         performance = '🟢 ปกติ';
         colorClass = 'text-blue-600 bg-blue-50';
       }
 
       return { id: admin.id, name: admin.name || admin.username, answered, avgResponseTime, performance, colorClass };
-    }).sort((a, b) => b.answered - a.answered);
+    }));
 
-    // 3. Hourly Traffic Load (สถิติ 24 ชม. ย้อนหลัง)
+    leaderboard.sort((a, b) => b.answered - a.answered);
+
+    // 3. Hourly Traffic Load (กรองกราฟตามสาขา)
     const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const recentMessages = await prisma.message.findMany({
-      where: { createdAt: { gte: yesterday }, senderType: 'CUSTOMER' },
+      where: { createdAt: { gte: yesterday }, senderType: 'CUSTOMER', conversation: convFilter },
       select: { createdAt: true }
     });
     
@@ -486,19 +506,24 @@ app.get('/analytics', async (req, res) => {
       hourlyData[hour]++;
     });
 
-    // 4. Manual Override Tracking (ใครแอบปิดบอทบ้าง?)
+    // 4. Manual Override Tracking (กรองเคสคุมมือตามสาขา)
     const manualOverrides = await prisma.conversation.findMany({
-      where: { botEnabled: false },
+      where: { botEnabled: false, ...convFilter },
       include: { channel: true, assignee: true, customer: true }
     });
 
+    // 5. ดึงรายชื่อสาขา (OA) ทั้งหมดส่งไปทำ Dropdown ตัวกรองบนหน้าเว็บ
+    const channels = await prisma.channel.findMany({ select: { id: true, name: true } });
+
     res.json({
+      channels, // ส่งกลับไปให้หน้าเว็บสร้างปุ่ม Dropdown
       deflection: { total: totalMessages, bot: botMessages, admin: adminMessages },
       leaderboard,
       hourlyData,
       manualOverrides
     });
   } catch (error) {
+    console.error("Analytics Error:", error);
     res.status(500).send(error.message);
   }
 });
