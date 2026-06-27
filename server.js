@@ -545,11 +545,10 @@ app.post('/analytics/reset-my-kpi', async (req, res) => {
 });
 
 // ====================================================================
-// 🚨 [DANGER ZONE] API ล้างกระดานแชททั้งหมดเพื่อเริ่มนับ 0 ใหม่
+// 🚨 [DANGER ZONE] API ล้างกระดานแชททั้งหมดเพื่อเริ่มนับ 0 ใหม่ (เวอร์ชันเบราว์เซอร์)
 // ====================================================================
-app.delete('/system/hard-reset-chats', async (req, res) => {
+app.get('/system/hard-reset-chats', async (req, res) => {
   try {
-    // ⚠️ ต้องลบจาก "ลูก" ไปหา "แม่" เพื่อป้องกัน Error Foreign Key Constraint
     const deletedMessages = await prisma.message.deleteMany({});
     const deletedConversations = await prisma.conversation.deleteMany({});
     const deletedCustomers = await prisma.customer.deleteMany({});
