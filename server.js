@@ -623,6 +623,79 @@ app.get('/system/hard-reset-chats', async (req, res) => {
 });
 
 // ====================================================================
+// 📢 [API บรอดแคสต์ร่างทอง V2] รองรับการยิงข้อความหลายก้อน (สูงสุด 5 บอลลูน)
+// ====================================================================
+app.post('/system/broadcast', async (req, res) => {
+  try {
+    const { messages, targetChannelId } = req.body;
+
+    // เช็คว่าส่ง messages มาเป็น Array และไม่เกิน 5 ก้อนตามกฎ LINE
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({ success: false, message: "กรุณาใส่ข้อความอย่างน้อย 1 ก้อน" });
+    }
+    if (messages.length > 5) {
+      return res.status(400).json({ success: false, message: "LINE อนุญาตให้ส่งสูงสุด 5 ก้อนต่อ 1 ครั้ง" });
+    }
+
+    const filter = targetChannelId !== 'ALL' ? { channelId: targetChannelId } : {};
+    const customers = await prisma.customer.findMany({
+      where: filter,
+      include: { channel: true }
+    });
+
+    if (customers.length === 0) {
+      return res.json({ success: false, message: "ไม่พบลูกค้าในระบบที่จะส่งหาได้" });
+    }
+
+    const customersByChannel = customers.reduce((acc, customer) => {
+      if (!customer.channel || !customer.channel.channelAccessToken) return acc;
+      if (!acc[customer.channelId]) {
+        acc[customer.channelId] = { token: customer.channel.channelAccessToken, uids: [] };
+      }
+      acc[customer.channelId].uids.push(customer.platformUserId);
+      return acc;
+    }, {});
+
+    let totalSent = 0;
+
+    for (const channelId in customersByChannel) {
+      const group = customersByChannel[channelId];
+      const uids = group.uids;
+      const chunkSize = 500; // ทยอยยิงมัดละ 500 คน
+
+      for (let i = 0; i < uids.length; i += chunkSize) {
+        const chunk = uids.slice(i, i + chunkSize);
+        
+        try {
+          await axios.post('https://api.line.me/v2/bot/message/multicast', {
+            to: chunk,
+            messages: messages // 🟢 โยน Array 5 ก้อนเข้าไปให้ LINE ยิงรวดเดียว!
+          }, {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${group.token}`
+            }
+          });
+          totalSent += chunk.length;
+        } catch (lineErr) {
+          console.error(`Broadcast Error Channel ${channelId}:`, lineErr.response?.data || lineErr.message);
+        }
+      }
+    }
+
+    res.json({ 
+      success: true, 
+      message: `ยิงเรียบร้อย! ส่ง ${messages.length} ก้อน หาลูกค้าทั้งหมด ${totalSent} คน`,
+      totalSent 
+    });
+
+  } catch (error) {
+    console.error("Broadcast System Error:", error);
+    res.status(500).json({ success: false, message: "เกิดข้อผิดพลาดในระบบ" });
+  }
+});
+
+// ====================================================================
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`🚀 เอนจิ้นคุมพลังหลังบ้านร่างทองคำ V.Final (Real-time Socket.io + Full URL Image Fix) พร้อมรบที่พอร์ต ${PORT}`);
