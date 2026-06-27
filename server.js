@@ -216,7 +216,7 @@ app.delete('/admins/:id', async (req, res) => {
 // ====================================================================
 app.post('/webhook', async (req, res) => {
   try {
-    let userId, displayName, textContent, senderType, adminId, incomingProviderId, pictureUrl; 
+    let userId, displayName, textContent, senderType, adminId, incomingProviderId, pictureUrl, replyToken; 
     let needsActionInput = req.body.needsAction === true;
     let stateInput = req.body.state;
 
@@ -229,6 +229,7 @@ app.post('/webhook', async (req, res) => {
       adminId = req.body.admin_id; 
       incomingProviderId = req.body.provider_id; 
       pictureUrl = req.body.pictureUrl; 
+      replyToken = req.body.replyToken; // 🟢 รับค่า Token จาก n8n
     } 
     // B: ข้อความวิ่งมาจาก LINE OA จริง
     else if (req.body.events && req.body.events.length > 0) {
@@ -239,6 +240,7 @@ app.post('/webhook', async (req, res) => {
         senderType = 'CUSTOMER';
         displayName = "ลูกค้า LINE";
         incomingProviderId = req.query.provider_id || req.body.provider_id;
+        replyToken = event.replyToken; // 🟢 เผื่อรับค่า Token จาก LINE ตรงๆ
       } else {
         return res.json({ success: true, message: "Non-text event ignored" });
       }
@@ -272,6 +274,12 @@ app.post('/webhook', async (req, res) => {
       conversationUpdate.isUnread = true;
       conversationUpdate.status = 'ACTIVE'; 
       if (targetedChannel) conversationUpdate.channelId = targetedChannel.id; 
+      
+      // 🟢 บันทึก Token ชั่วคราว (เก็บไว้ใช้ยิงฟรี) พร้อมประทับเวลา
+      if (replyToken) {
+        conversationUpdate.replyToken = replyToken;
+        conversationUpdate.replyTokenAt = new Date();
+      }
     } else {
       conversationUpdate.isUnread = false;
       conversationUpdate.needsAction = needsActionInput;
@@ -286,7 +294,9 @@ app.post('/webhook', async (req, res) => {
       conversation = await prisma.conversation.create({
         data: { 
           customerId: customer.id, botEnabled: true, isUnread: senderType === 'CUSTOMER', 
-          needsAction: needsActionInput, status: 'ACTIVE', channelId: targetedChannel ? targetedChannel.id : null
+          needsAction: needsActionInput, status: 'ACTIVE', channelId: targetedChannel ? targetedChannel.id : null,
+          replyToken: replyToken || null, // 🟢 ตอนสร้างแชทใหม่ ก็บันทึกด้วย
+          replyTokenAt: replyToken ? new Date() : null
         }
       });
     } else {
@@ -324,7 +334,9 @@ app.post('/webhook', async (req, res) => {
     // 📡 ยิง Socket.io บอกทุกจอให้อัปเดต UI ทันที
     io.emit('chatUpdate', { conversationId: conversation.id });
 
-    // STEP 5: ยิงข้อมูลไปหาลูกค้า (LINE) ถ้าแอดมินพิมพ์
+    // ====================================================================
+    // 🟢 STEP 5: ยิงข้อมูลไปหาลูกค้า (LINE) - ร่างทองประหยัดค่า Push!
+    // ====================================================================
     if (senderType === 'ADMIN') {
       const currentConv = await prisma.conversation.findUnique({ where: { id: conversation.id }, include: { channel: true } });
       const dynamicToken = currentConv?.channel?.accessToken;
@@ -334,7 +346,7 @@ app.post('/webhook', async (req, res) => {
       let msgType = req.body.msg_type || 'text';
       let lineMessagePayload = { type: 'text', text: textContent };
 
-      // 🟢 [อัปเดตใหม่] ประกอบร่าง URL รูปภาพให้เต็มยศ (ป้องกันส่งไปแล้วลูกค้าไม่เห็น)
+      // ประกอบร่าง URL รูปภาพให้เต็มยศ
       if (msgType === 'image' && req.body.image_url) {
         const fullImageUrl = req.body.image_url.startsWith('http') 
           ? req.body.image_url 
@@ -351,11 +363,47 @@ app.post('/webhook', async (req, res) => {
         lineMessagePayload = { type: 'flex', altText: "🎁 โปรโมชั่นพิเศษ", contents: { type: 'carousel', contents: req.body.flex_payload.contents || req.body.flex_payload } };
       }
 
-      await axios.post('https://api.line.me/v2/bot/message/push', {
-        to: userId, messages: [lineMessagePayload]
-      }, {
-        headers: { 'Authorization': `Bearer ${dynamicToken}`, 'Content-Type': 'application/json' }
-      }).catch(err => console.error("❌ Line Push Error", err.response?.data));
+      let isSentFree = false;
+
+      // 🔥 พยายามใช้ Reply API ก่อน (ส่งฟรี)
+      if (currentConv.replyToken && currentConv.replyTokenAt) {
+        const tokenAge = Date.now() - new Date(currentConv.replyTokenAt).getTime();
+        
+        // เช็คอายุ Token ว่ายังไม่เกิน 55 วินาที
+        if (tokenAge < 55000) { 
+          try {
+            await axios.post('https://api.line.me/v2/bot/message/reply', {
+              replyToken: currentConv.replyToken,
+              messages: [lineMessagePayload]
+            }, {
+              headers: { 'Authorization': `Bearer ${dynamicToken}`, 'Content-Type': 'application/json' }
+            });
+            
+            isSentFree = true;
+            console.log("✅ แอดมินตอบไว! ส่งฟรีด้วย Reply API");
+
+            // ⚠️ กดใช้แล้วต้องทำลาย Token ทิ้งทันที (ป้องกันการยิงซ้ำจน Error)
+            await prisma.conversation.update({
+              where: { id: currentConv.id },
+              data: { replyToken: null }
+            });
+
+          } catch (replyErr) {
+            console.log("⚠️ Reply Token หมดอายุหรือพัง ระบบกำลังสลับไปใช้ Push...");
+          }
+        }
+      }
+
+      // 🔥 ถ้าส่งฟรีไม่สำเร็จ (หมดเวลา หรือยิงข้อความก้อนที่ 2) ให้สลับมาใช้ Push API อัตโนมัติ (เสียเงิน)
+      if (!isSentFree) {
+        await axios.post('https://api.line.me/v2/bot/message/push', {
+          to: userId, messages: [lineMessagePayload]
+        }, {
+          headers: { 'Authorization': `Bearer ${dynamicToken}`, 'Content-Type': 'application/json' }
+        }).catch(err => console.error("❌ Line Push Error", err.response?.data));
+        
+        console.log("💰 ส่งสำเร็จด้วย Push API (เสียโควต้า)");
+      }
     }
 
     res.json({ success: true, message: message, bot_enabled: conversation.botEnabled });

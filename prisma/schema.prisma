@@ -61,20 +61,22 @@ model Customer {
 }
 
 model Conversation {
-  id          String    @id @default(uuid())
-  customerId  String    @unique
-  customer    Customer  @relation(fields: [customerId], references: [id])
-  channelId   String?
-  channel     Channel?  @relation(fields: [channelId], references: [id])
-  assigneeId  String?
-  assignee    Admin?    @relation(fields: [assigneeId], references: [id])
-  botEnabled  Boolean   @default(true)
-  needsAction Boolean   @default(false)
-  isUnread    Boolean   @default(true)
-  status      String    @default("ACTIVE")
-  messages    Message[]
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id           String    @id @default(uuid())
+  customerId   String    @unique
+  customer     Customer  @relation(fields: [customerId], references: [id])
+  channelId    String?
+  channel      Channel?  @relation(fields: [channelId], references: [id])
+  assigneeId   String?
+  assignee     Admin?    @relation(fields: [assigneeId], references: [id])
+  botEnabled   Boolean   @default(true)
+  needsAction  Boolean   @default(false)
+  isUnread     Boolean   @default(true)
+  status       String    @default("ACTIVE")
+  messages     Message[]
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  replyToken   String?
+  replyTokenAt DateTime?
 }
 
 model Message {
