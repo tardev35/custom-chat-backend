@@ -545,6 +545,31 @@ app.post('/analytics/reset-my-kpi', async (req, res) => {
 });
 
 // ====================================================================
+// 🚨 [DANGER ZONE] API ล้างกระดานแชททั้งหมดเพื่อเริ่มนับ 0 ใหม่
+// ====================================================================
+app.delete('/system/hard-reset-chats', async (req, res) => {
+  try {
+    // ⚠️ ต้องลบจาก "ลูก" ไปหา "แม่" เพื่อป้องกัน Error Foreign Key Constraint
+    const deletedMessages = await prisma.message.deleteMany({});
+    const deletedConversations = await prisma.conversation.deleteMany({});
+    const deletedCustomers = await prisma.customer.deleteMany({});
+
+    res.json({ 
+      success: true, 
+      message: "ล้างกระดานข้อมูลแชททั้งหมดเรียบร้อยแล้ว! KPI กลับไปเริ่มต้นที่ 0",
+      stats: {
+        messagesDeleted: deletedMessages.count,
+        conversationsDeleted: deletedConversations.count,
+        customersDeleted: deletedCustomers.count
+      }
+    });
+  } catch (error) {
+    console.error("Hard Reset Error:", error);
+    res.status(500).send(error.message);
+  }
+});
+
+// ====================================================================
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`🚀 เอนจิ้นคุมพลังหลังบ้านร่างทองคำ V.Final (Real-time Socket.io + Full URL Image Fix) พร้อมรบที่พอร์ต ${PORT}`);
