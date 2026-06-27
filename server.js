@@ -493,7 +493,7 @@ app.get('/analytics', async (req, res) => {
 
     leaderboard.sort((a, b) => b.answered - a.answered);
 
-    // 3. Hourly Traffic Load (กรองกราฟตามสาขา)
+    // 3. Hourly Traffic Load (กรองกราฟตามสาขา + แก้บั๊ก Timezone ไทย UTC+7)
     const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const recentMessages = await prisma.message.findMany({
       where: { createdAt: { gte: yesterday }, senderType: 'CUSTOMER', conversation: convFilter },
@@ -502,8 +502,10 @@ app.get('/analytics', async (req, res) => {
     
     const hourlyData = Array(24).fill(0);
     recentMessages.forEach(m => {
-      const hour = new Date(m.createdAt).getHours();
-      hourlyData[hour]++;
+      // 🟢 ดึงชั่วโมงแบบมาตรฐานโลก แล้วบวก 7 ชั่วโมงให้เป็นเวลาไทย
+      const utcDate = new Date(m.createdAt);
+      const thaiHour = (utcDate.getUTCHours() + 7) % 24; 
+      hourlyData[thaiHour]++;
     });
 
     // 4. Manual Override Tracking (กรองเคสคุมมือตามสาขา)
