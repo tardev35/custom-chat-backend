@@ -436,6 +436,74 @@ app.post('/draft-response', async (req, res) => {
 });
 
 // ====================================================================
+// 📊 [ระบบ Analytics] แดชบอร์ดผู้บริหาร & KPI แอดมิน (หมวดที่ 5)
+// ====================================================================
+app.get('/analytics', async (req, res) => {
+  try {
+    // 1. Bot Deflection & Cost Saving (เทียบจากจำนวนข้อความ)
+    const totalMessages = await prisma.message.count({ where: { senderType: { in: ['BOT', 'ADMIN'] } } });
+    const botMessages = await prisma.message.count({ where: { senderType: 'BOT' } });
+    const adminMessages = await prisma.message.count({ where: { senderType: 'ADMIN' } });
+
+    // 2. Admin Leaderboard & KPI (จัดอันดับ + ความเร็ว)
+    const admins = await prisma.admin.findMany({
+      include: {
+        messages: {
+          where: { senderType: 'ADMIN' },
+          select: { responseTime: true }
+        }
+      }
+    });
+
+    const leaderboard = admins.map(admin => {
+      const answered = admin.messages.length;
+      const validTimes = admin.messages.filter(m => m.responseTime !== null).map(m => m.responseTime);
+      const avgResponseTime = validTimes.length > 0 ? Math.floor(validTimes.reduce((a, b) => a + b, 0) / validTimes.length) : 0;
+      
+      let performance = '⚡ สปีดเทพมาก';
+      let colorClass = 'text-green-600 bg-green-50';
+      if (avgResponseTime > 300) { // เกิน 5 นาที (300 วินาที)
+        performance = '🔴 ช้าเกินเกณฑ์';
+        colorClass = 'text-red-600 bg-red-50';
+      } else if (avgResponseTime > 60) { // 1-5 นาที
+        performance = '🟢 ปกติ';
+        colorClass = 'text-blue-600 bg-blue-50';
+      }
+
+      return { id: admin.id, name: admin.name || admin.username, answered, avgResponseTime, performance, colorClass };
+    }).sort((a, b) => b.answered - a.answered);
+
+    // 3. Hourly Traffic Load (สถิติ 24 ชม. ย้อนหลัง)
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const recentMessages = await prisma.message.findMany({
+      where: { createdAt: { gte: yesterday }, senderType: 'CUSTOMER' },
+      select: { createdAt: true }
+    });
+    
+    const hourlyData = Array(24).fill(0);
+    recentMessages.forEach(m => {
+      const hour = new Date(m.createdAt).getHours();
+      hourlyData[hour]++;
+    });
+
+    // 4. Manual Override Tracking (ใครแอบปิดบอทบ้าง?)
+    const manualOverrides = await prisma.conversation.findMany({
+      where: { botEnabled: false },
+      include: { channel: true, assignee: true, customer: true }
+    });
+
+    res.json({
+      deflection: { total: totalMessages, bot: botMessages, admin: adminMessages },
+      leaderboard,
+      hourlyData,
+      manualOverrides
+    });
+  } catch (error) {
+    res.status(500).send(error.message);
+  }
+});
+
+// ====================================================================
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`🚀 เอนจิ้นคุมพลังหลังบ้านร่างทองคำ V.Final (Real-time Socket.io + Full URL Image Fix) พร้อมรบที่พอร์ต ${PORT}`);
