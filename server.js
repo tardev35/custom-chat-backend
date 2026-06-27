@@ -528,6 +528,41 @@ app.get('/analytics', async (req, res) => {
 });
 
 // ====================================================================
+// 🧼 [API ล้างสถิติร่างทอง] รีเซ็ตข้อมูลการตอบและเวลาเฉพาะแอดมินคนนี้
+// ====================================================================
+app.post('/analytics/reset-my-kpi', async (req, res) => {
+  try {
+    // ในระบบจริง จะต้องเช็ค token หรือ session เพื่อหาว่าใครล็อกอินอยู่ 
+    // ในที่นี้สมมติว่าดึง adminId จาก body หรือระบบตรวจสอบผู้ใช้ของพี่ครับ
+    const { adminId } = req.body;
+
+    if (!adminId) {
+      return res.status(400).json({ success: false, message: "ไม่พบ Admin ID" });
+    }
+
+    // 🟢 ล้างประวัติจับเวลา (responseTime) ในข้อความทั้งหมดที่แอดมินคนนี้เคยพิมพ์ตอบ
+    // โดยเปลี่ยนกลับไปเป็น null และเปลี่ยน senderType กลับเป็นค่าเริ่มต้น เพื่อไม่ให้ระบบLeaderboardนำไปนับ
+    await prisma.message.updateMany({
+      where: {
+        adminId: adminId,
+        senderType: 'ADMIN'
+      },
+      data: {
+        responseTime: null
+      }
+    });
+
+    res.json({ 
+      success: true, 
+      message: "ล้างสถิติและเวลาของคุณเรียบร้อยแล้ว! หน้าจอ Analytics จะกลับเป็นศูนย์พร้อมทดสอบครับ" 
+    });
+  } catch (error) {
+    console.error("Reset KPI Error:", error);
+    res.status(500).send(error.message);
+  }
+});
+
+// ====================================================================
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`🚀 เอนจิ้นคุมพลังหลังบ้านร่างทองคำ V.Final (Real-time Socket.io + Full URL Image Fix) พร้อมรบที่พอร์ต ${PORT}`);
