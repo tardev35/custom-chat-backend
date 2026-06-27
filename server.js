@@ -8,6 +8,8 @@ const { Server } = require('socket.io');
 const prisma = new PrismaClient();
 const app = express();
 
+const sharp = require('sharp');
+
 // 🟢 สร้าง HTTP Server และเสียบ Socket.io เข้าไป
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -40,11 +42,28 @@ const storage = multer.diskStorage({
     cb(null, `${Date.now()}-${cleanFileName}`); // แปะ timestamp นำหน้ากันชื่อซ้ำ
   }
 });
-const upload = multer({ storage: storage });
+const upload = multer({ storage: multer.memoryStorage() });
 
-app.post('/upload-image', upload.single('file'), (req, res) => {
+app.post('/upload-image', upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).send("No file uploaded");
-  res.json({ imageUrl: `/uploads/${req.file.filename}` }); 
+
+  try {
+    // กำจัดตัวอักษรแปลกๆ และช่องว่าง
+    const cleanFileName = req.file.originalname.replace(/[^a-zA-Z0-9.\-_]/g, '-').split('.')[0];
+    const webpFilename = `${Date.now()}-${cleanFileName}.webp`;
+    const outputPath = path.join(uploadDir, webpFilename);
+
+    // 🟢 พระเอกของเรา: Sharp บีบอัด + แปลง WebP + รีไซส์ไม่ให้เกิน 1040px (สเปก LINE)
+    await sharp(req.file.buffer)
+      .resize({ width: 1040, withoutEnlargement: true }) 
+      .webp({ quality: 80 }) // คุณภาพ 80% (ชัดเป๊ะแต่ไฟล์เล็กจิ๋ว)
+      .toFile(outputPath);
+
+    res.json({ imageUrl: `/uploads/${webpFilename}` }); 
+  } catch (error) {
+    console.error("Sharp Error:", error);
+    res.status(500).send("Error processing image");
+  }
 });
 
 // ====================================================================
