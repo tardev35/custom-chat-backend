@@ -151,32 +151,59 @@ app.delete('/templates/:id', async (req, res) => {
 });
 
 // ====================================================================
-// 🔑 [ระบบแอดมิน] ตรวจสอบสิทธิ์และล็อกอิน (Authentication)
+// 🔑 [ระบบแอดมิน / พนักงาน]
 // ====================================================================
+
+// 1. Login (ดึงข้อมูลสิทธิ์ OA ไปให้หน้า React ด้วย)
 app.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
-    const admin = await prisma.admin.findUnique({ where: { username } });
+    // 🟢 ดึงข้อมูลช่องทาง (channels) ที่แอดมินคนนี้รับผิดชอบติดไปด้วย
+    const admin = await prisma.admin.findUnique({ 
+      where: { username },
+      include: { channels: true } 
+    });
+    
     if (!admin || admin.password !== password) return res.status(401).json({ success: false, message: "Username หรือ รหัสผ่านไม่ถูกต้อง" });
-    res.json({ success: true, admin: { id: admin.id, name: admin.name, username: admin.username, role: admin.role } });
+    
+    res.json({ 
+      success: true, 
+      admin: { 
+        id: admin.id, name: admin.name, username: admin.username, role: admin.role, 
+        channels: admin.channels // 🟢 ส่งสิทธิ์กลับไป
+      } 
+    });
   } catch (error) { res.status(500).send(error.message); }
 });
 
+// 2. ดึงรายชื่อพนักงานทั้งหมด (ให้โชว์ว่าดูแลสาขาไหนบ้าง)
 app.get('/admins', async (req, res) => {
   try {
-    const admins = await prisma.admin.findMany({ select: { id: true, username: true, name: true, role: true }});
+    const admins = await prisma.admin.findMany({ 
+      select: { id: true, username: true, name: true, role: true, channels: true } // 🟢 ดึง channels
+    });
     res.json(admins);
   } catch (error) { res.status(500).send(error.message); }
 });
 
+// 3. สร้างพนักงานใหม่ พร้อมผูกสิทธิ์ OA ทันที
 app.post('/admins', async (req, res) => {
   try {
-    const { username, password, name, role } = req.body;
-    const newAdmin = await prisma.admin.create({ data: { username, password, name, role: role || 'STAFF' } });
+    const { username, password, name, role, channelIds } = req.body; // 🟢 รับ channelIds มาด้วย
+    
+    const newAdmin = await prisma.admin.create({ 
+      data: { 
+        username, password, name, role: role || 'STAFF',
+        channels: {
+          connect: channelIds ? channelIds.map(id => ({ id: id })) : [] // 🟢 สั่งผูกความสัมพันธ์เข้าด้วยกัน
+        }
+      } 
+    });
     res.json({ success: true, newAdmin });
-  } catch (error) { res.status(400).send("Username นี้ซ้ำกับในระบบครับ"); }
+  } catch (error) { res.status(400).send("Username นี้ซ้ำ หรือมีปัญหาในการผูกสาขา"); }
 });
 
+// 4. ลบพนักงาน (ใช้ของเดิมได้เลย)
 app.delete('/admins/:id', async (req, res) => {
   try {
     await prisma.admin.delete({ where: { id: req.params.id } });

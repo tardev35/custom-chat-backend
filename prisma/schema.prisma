@@ -15,6 +15,7 @@ model Admin {
   role          String         @default("STAFF")
   conversations Conversation[]
   messages      Message[]
+  channels      Channel[]
 }
 
 model Channel {
@@ -28,6 +29,7 @@ model Channel {
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   cardTemplates CardTemplate[]
+  admins        Admin[]
 }
 
 model CardTemplate {
