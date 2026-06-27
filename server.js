@@ -31,10 +31,14 @@ if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
 // 2. เปิดให้หน้า React สามารถดึงรูปในโฟลเดอร์นี้ไปโชว์ได้
 app.use('/uploads', express.static(uploadDir));
 
-// 3. ตั้งค่าการเซฟไฟล์
+// 3. ตั้งค่าการเซฟไฟล์ (แก้บั๊กชื่อไฟล์มีช่องว่างให้ LINE ยอมรับ)
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadDir),
-  filename: (req, file, cb) => cb(null, file.originalname)
+  filename: (req, file, cb) => {
+    // 🟢 แปลงช่องว่างและอักษรแปลกๆ ให้เป็นขีดกลาง (เช่น "My Pic.jpg" -> "My-Pic.jpg")
+    const cleanFileName = file.originalname.replace(/[^a-zA-Z0-9.\-_]/g, '-');
+    cb(null, `${Date.now()}-${cleanFileName}`); // แปะ timestamp นำหน้ากันชื่อซ้ำ
+  }
 });
 const upload = multer({ storage: storage });
 
