@@ -2,8 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 const { PrismaClient } = require('@prisma/client');
-const http = require('http'); // 🟢 นำเข้า http
-const { Server } = require('socket.io'); // 🟢 นำเข้า socket.io
+const http = require('http'); 
+const { Server } = require('socket.io'); 
 
 const prisma = new PrismaClient();
 const app = express();
@@ -12,7 +12,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: "*", // อนุญาตให้ React ทุกโดเมนต่อเข้ามาได้
+    origin: "*", 
     methods: ["GET", "POST"]
   }
 });
@@ -271,7 +271,7 @@ app.post('/webhook', async (req, res) => {
       }
     });
 
-    // 🟢 📡 สัญญาณ SOCKET.IO: ยิงบอกทุกจอว่าแชทนี้มีการอัปเดต!
+    // 📡 ยิง Socket.io บอกทุกจอให้อัปเดต UI ทันที
     io.emit('chatUpdate', { conversationId: conversation.id });
 
     // STEP 5: ยิงข้อมูลไปหาลูกค้า (LINE) ถ้าแอดมินพิมพ์
@@ -284,8 +284,17 @@ app.post('/webhook', async (req, res) => {
       let msgType = req.body.msg_type || 'text';
       let lineMessagePayload = { type: 'text', text: textContent };
 
+      // 🟢 [อัปเดตใหม่] ประกอบร่าง URL รูปภาพให้เต็มยศ (ป้องกันส่งไปแล้วลูกค้าไม่เห็น)
       if (msgType === 'image' && req.body.image_url) {
-        lineMessagePayload = { type: 'image', originalContentUrl: req.body.image_url, previewImageUrl: req.body.image_url };
+        const fullImageUrl = req.body.image_url.startsWith('http') 
+          ? req.body.image_url 
+          : `https://apiline.linedevbot.vip${req.body.image_url}`;
+          
+        lineMessagePayload = { 
+          type: 'image', 
+          originalContentUrl: fullImageUrl, 
+          previewImageUrl: fullImageUrl 
+        };
       } else if (msgType === 'flex' && req.body.flex_payload) {
         lineMessagePayload = { type: 'flex', altText: "🎁 มีข้อความพิเศษถึงคุณ", contents: req.body.flex_payload };
       } else if (msgType === 'carousel' && req.body.flex_payload) {
@@ -335,7 +344,6 @@ app.get('/messages/:conversationId', async (req, res) => {
     const currentConv = await prisma.conversation.findUnique({ where: { id: conversationId } });
     if (currentConv && currentConv.isUnread) {
       await prisma.conversation.update({ where: { id: conversationId }, data: { isUnread: false } });
-      // อัปเดต Unread หายไป แจ้งหน้าจอด้วย
       io.emit('chatUpdate', { conversationId: conversationId }); 
     }
 
@@ -406,7 +414,6 @@ app.post('/draft-response', async (req, res) => {
 
 // ====================================================================
 const PORT = process.env.PORT || 3000;
-// 🟢 เปลี่ยนจาก app.listen เป็น server.listen เพราะผูก Socket.io ไว้กับ HTTP Server
 server.listen(PORT, () => {
-  console.log(`🚀 เอนจิ้นคุมพลังหลังบ้านร่างทองคำ V.Final (Real-time Socket.io) พร้อมรบที่พอร์ต ${PORT}`);
+  console.log(`🚀 เอนจิ้นคุมพลังหลังบ้านร่างทองคำ V.Final (Real-time Socket.io + Full URL Image Fix) พร้อมรบที่พอร์ต ${PORT}`);
 });
