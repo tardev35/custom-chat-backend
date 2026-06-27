@@ -436,66 +436,44 @@ app.post('/draft-response', async (req, res) => {
 });
 
 // ====================================================================
-// 📊 [ระบบ Analytics ร่างทอง] แดชบอร์ดผู้บริหาร & KPI แอดมิน (หมวดที่ 5)
+// 📊 [ระบบ Analytics] แดชบอร์ดผู้บริหาร & KPI แอดมิน (หมวดที่ 5)
 // ====================================================================
 app.get('/analytics', async (req, res) => {
   try {
-    // 1. Bot Deflection & Cost Saving (คำนวณจากข้อความทั้งหมดในระบบ)
+    // 1. Bot Deflection & Cost Saving (เทียบจากจำนวนข้อความ)
     const totalMessages = await prisma.message.count({ where: { senderType: { in: ['BOT', 'ADMIN'] } } });
     const botMessages = await prisma.message.count({ where: { senderType: 'BOT' } });
     const adminMessages = await prisma.message.count({ where: { senderType: 'ADMIN' } });
 
-    // 2. 👑 [Admin Leaderboard & KPI ร่างทอง] คำนวณสปีดเฉพาะคนพิมพ์จริง บอทไม่เกี่ยว!
-    const admins = await prisma.admin.findMany();
-    
-    const leaderboard = await Promise.all(admins.map(async (admin) => {
-      // ดึงเฉพาะข้อความที่ ADMIN คนนี้เป็นคนกดส่งด้วยตัวเองจริงๆ และมีตัวเลข responseTime บันทึกไว้
-      const actualAdminMessages = await prisma.message.findMany({
-        where: {
-          adminId: admin.id,
-          senderType: 'ADMIN',
-          responseTime: { not: null }
-        },
-        select: { responseTime: true }
-      });
+    // 2. Admin Leaderboard & KPI (จัดอันดับ + ความเร็ว)
+    const admins = await prisma.admin.findMany({
+      include: {
+        messages: {
+          where: { senderType: 'ADMIN' },
+          select: { responseTime: true }
+        }
+      }
+    });
 
-      const answered = actualAdminMessages.length; // นับเฉพาะแชทที่แอดมินพิมพ์ตอบจริง
-      const validTimes = actualAdminMessages.map(m => m.responseTime);
-      
-      // หาค่าเฉลี่ยความเร็ว (เศษวินาที)
-      const avgResponseTime = validTimes.length > 0 
-        ? Math.floor(validTimes.reduce((a, b) => a + b, 0) / validTimes.length) 
-        : 0;
+    const leaderboard = admins.map(admin => {
+      const answered = admin.messages.length;
+      const validTimes = admin.messages.filter(m => m.responseTime !== null).map(m => m.responseTime);
+      const avgResponseTime = validTimes.length > 0 ? Math.floor(validTimes.reduce((a, b) => a + b, 0) / validTimes.length) : 0;
       
       let performance = '⚡ สปีดเทพมาก';
       let colorClass = 'text-green-600 bg-green-50';
-      
-      // เกณฑ์วัดผลอัจฉริยะตามการทำงานจริง
-      if (answered === 0) {
-        performance = '💤 สแตนด์บาย (ยังไม่มีเคส)';
-        colorClass = 'text-gray-500 bg-gray-50';
-      } else if (avgResponseTime > 300) { // เกิน 5 นาที (300 วินาที)
+      if (avgResponseTime > 300) { // เกิน 5 นาที (300 วินาที)
         performance = '🔴 ช้าเกินเกณฑ์';
         colorClass = 'text-red-600 bg-red-50';
-      } else if (avgResponseTime > 60) { // 1 - 5 นาที
+      } else if (avgResponseTime > 60) { // 1-5 นาที
         performance = '🟢 ปกติ';
         colorClass = 'text-blue-600 bg-blue-50';
       }
 
-      return { 
-        id: admin.id, 
-        name: admin.name || admin.username, 
-        answered, 
-        avgResponseTime, 
-        performance, 
-        colorClass 
-      };
-    }));
+      return { id: admin.id, name: admin.name || admin.username, answered, avgResponseTime, performance, colorClass };
+    }).sort((a, b) => b.answered - a.answered);
 
-    // จัดอันดับเดอะแบก: เรียงลำดับจากคนตอบเยอะสุดไปหาคนตอบน้อยสุด
-    leaderboard.sort((a, b) => b.answered - a.answered);
-
-    // 3. Hourly Traffic Load (สถิติจับ Traffic ลูกค้าทักย้อนหลัง 24 ชั่วโมง)
+    // 3. Hourly Traffic Load (สถิติ 24 ชม. ย้อนหลัง)
     const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const recentMessages = await prisma.message.findMany({
       where: { createdAt: { gte: yesterday }, senderType: 'CUSTOMER' },
@@ -508,13 +486,12 @@ app.get('/analytics', async (req, res) => {
       hourlyData[hour]++;
     });
 
-    // 4. Manual Override Tracking (ดึงรายการเคสที่แอดมินสั่งปิดบอทเพื่อพิมพ์มือค้างไว้)
+    // 4. Manual Override Tracking (ใครแอบปิดบอทบ้าง?)
     const manualOverrides = await prisma.conversation.findMany({
       where: { botEnabled: false },
       include: { channel: true, assignee: true, customer: true }
     });
 
-    // ส่งข้อมูลทั้งหมดออกไปให้หน้าบ้าน (AnalyticsView.jsx) เรนเดอร์กราฟ
     res.json({
       deflection: { total: totalMessages, bot: botMessages, admin: adminMessages },
       leaderboard,
@@ -522,7 +499,6 @@ app.get('/analytics', async (req, res) => {
       manualOverrides
     });
   } catch (error) {
-    console.error("Analytics Error:", error);
     res.status(500).send(error.message);
   }
 });
