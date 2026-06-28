@@ -530,7 +530,9 @@ app.post('/draft-response', async (req, res) => {
     });
     res.json({ success: true, draftText: n8nResponse.data.suggestedText });
   } catch (error) {
-    res.status(500).send(error.message);
+    // 🟢 เพิ่ม Console.log เพื่อดูคำด่าจาก n8n โดยตรง
+    console.error("❌ Draft API Error:", error.response?.data || error.message);
+    res.status(500).send(error.response?.data || error.message);
   }
 });
 
