@@ -769,6 +769,34 @@ app.post('/system/broadcast', async (req, res) => {
   }
 });
 
+// 🟢 API ให้ n8n ดึงข้อมูลที่จำไว้ (GET)
+app.get('/customer-form/:lineUserId', async (req, res) => {
+  try {
+    const customer = await prisma.customer.findUnique({
+      where: { platformUserId: req.params.lineUserId },
+      select: { tempName: true, tempPhone: true, tempBank: true, tempAccount: true, currentIntent: true }
+    });
+    res.json(customer || {});
+  } catch (error) { res.status(500).send(error.message); }
+});
+
+// 🟢 API ให้ n8n บันทึกข้อมูลที่ AI แกะได้กลับลงไป (PUT)
+app.put('/customer-form/:lineUserId', async (req, res) => {
+  try {
+    const updated = await prisma.customer.update({
+      where: { platformUserId: req.params.lineUserId },
+      data: {
+        tempName: req.body.name,
+        tempPhone: req.body.phone,
+        tempBank: req.body.bank,
+        tempAccount: req.body.account_number,
+        currentIntent: req.body.type_issue
+      }
+    });
+    res.json({ success: true, updated });
+  } catch (error) { res.status(500).send(error.message); }
+});
+
 // ====================================================================
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
