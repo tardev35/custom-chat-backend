@@ -780,21 +780,71 @@ app.get('/customer-form/:lineUserId', async (req, res) => {
   } catch (error) { res.status(500).send(error.message); }
 });
 
-// 🟢 API ให้ n8n บันทึกข้อมูลที่ AI แกะได้กลับลงไป (PUT)
+// ====================================================================
+// 🤖 [ระบบ AI Form Bot] API สำหรับให้ n8n ดึงและบันทึกข้อมูล Slot Filling
+// ====================================================================
+
+// 🟢 1. API สำหรับ n8n: ดึงข้อมูลเดิมของลูกค้าขึ้นมาดู (GET)
+app.get('/customer-form/:lineUserId', async (req, res) => {
+  try {
+    const customer = await prisma.customer.findUnique({
+      where: { platformUserId: req.params.lineUserId },
+      select: { 
+        tempName: true, 
+        tempPhone: true, 
+        tempBank: true, 
+        tempAccount: true, 
+        currentIntent: true 
+      }
+    });
+    
+    // ถ้าเจอข้อมูลก็ส่งกลับ ถ้าไม่เจอก็ส่ง Object ว่างๆ ไป
+    res.json(customer || {});
+  } catch (error) {
+    console.error("GET Customer Form Error:", error);
+    res.status(500).send(error.message);
+  }
+});
+
+// 🟢 2. API สำหรับ n8n: บันทึกข้อมูลที่ AI แกะได้กลับลง Database (PUT)
 app.put('/customer-form/:lineUserId', async (req, res) => {
   try {
     const updated = await prisma.customer.update({
       where: { platformUserId: req.params.lineUserId },
       data: {
-        tempName: req.body.name,
-        tempPhone: req.body.phone,
-        tempBank: req.body.bank,
-        tempAccount: req.body.account_number,
-        currentIntent: req.body.type_issue
+        // ถ้า n8n ไม่ได้ส่งค่าไหนมา ให้ปล่อยเป็นค่าว่าง (null) หรือค่าเก่าไว้
+        tempName: req.body.name || null,
+        tempPhone: req.body.phone || null,
+        tempBank: req.body.bank || null,
+        tempAccount: req.body.account_number || null,
+        currentIntent: req.body.type_issue || null
       }
     });
     res.json({ success: true, updated });
-  } catch (error) { res.status(500).send(error.message); }
+  } catch (error) {
+    console.error("PUT Customer Form Error:", error);
+    res.status(500).send(error.message);
+  }
+});
+
+// 🟢 3. API สำหรับ n8n: ล้างข้อมูลเมื่อทำรายการเสร็จสิ้น (POST)
+// (เพื่อที่รอบหน้าลูกค้ากดลืมรหัสผ่านใหม่ ข้อมูลจะได้ว่างเปล่า)
+app.post('/customer-form/:lineUserId/clear', async (req, res) => {
+  try {
+    await prisma.customer.update({
+      where: { platformUserId: req.params.lineUserId },
+      data: {
+        tempName: null,
+        tempPhone: null,
+        tempBank: null,
+        tempAccount: null,
+        currentIntent: null
+      }
+    });
+    res.json({ success: true, message: "Cleared Form Data" });
+  } catch (error) {
+    res.status(500).send(error.message);
+  }
 });
 
 // ====================================================================
