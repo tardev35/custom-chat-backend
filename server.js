@@ -525,7 +525,7 @@ app.post('/draft-response', async (req, res) => {
       return `${sender}: ${m.textContent}`;
     }).join('\n');
 
-    const n8nResponse = await axios.post('https://apiline.linedevbot.vip/webhook/ai-draft', {
+    const n8nResponse = await axios.post('https://linedevbot.vip/webhook/ai-draft', {
       history: chatContext, conversationId: conversationId
     });
     res.json({ success: true, draftText: n8nResponse.data.suggestedText });
