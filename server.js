@@ -262,40 +262,48 @@ app.post('/webhook', async (req, res) => {
     let targetedChannel = null;
     if (incomingProviderId) targetedChannel = await prisma.channel.findUnique({ where: { providerId: incomingProviderId } });
 
+   // ==========================================
     // STEP 3: ตรวจสอบห้องแชทและอัปเดตสถานะ
+    // ==========================================
     let conversationUpdate = { updatedAt: new Date() };
 
-    if (stateInput === 'agent') {
-      conversationUpdate.botEnabled = false; 
-      conversationUpdate.needsAction = true; 
-    }
-    
     if (senderType === 'CUSTOMER') {
       conversationUpdate.isUnread = true;
       conversationUpdate.status = 'ACTIVE'; 
       if (targetedChannel) conversationUpdate.channelId = targetedChannel.id; 
       
-      // 🟢 บันทึก Token ชั่วคราว (เก็บไว้ใช้ยิงฟรี) พร้อมประทับเวลา
       if (replyToken) {
         conversationUpdate.replyToken = replyToken;
         conversationUpdate.replyTokenAt = new Date();
       }
     } else {
       conversationUpdate.isUnread = false;
-      conversationUpdate.needsAction = needsActionInput;
       if (senderType === 'ADMIN' && adminId) {
         conversationUpdate.assigneeId = adminId;
         conversationUpdate.botEnabled = false; 
       }
     }
 
+    // 🟢 ย้าย State มาไว้ล่างสุด! (อำนาจสูงสุด ห้ามใครเขียนทับ)
+    if (stateInput === 'agent') {
+      conversationUpdate.botEnabled = false; 
+      conversationUpdate.needsAction = true; 
+    } else if (req.body.needsAction !== undefined) {
+      conversationUpdate.needsAction = req.body.needsAction;
+    }
+
     let conversation = await prisma.conversation.findFirst({ where: { customerId: customer.id } });
     if (!conversation) {
+      // กรณีสร้างแชทใหม่ ดักจับ State agent ด้วย
       conversation = await prisma.conversation.create({
         data: { 
-          customerId: customer.id, botEnabled: true, isUnread: senderType === 'CUSTOMER', 
-          needsAction: needsActionInput, status: 'ACTIVE', channelId: targetedChannel ? targetedChannel.id : null,
-          replyToken: replyToken || null, // 🟢 ตอนสร้างแชทใหม่ ก็บันทึกด้วย
+          customerId: customer.id, 
+          botEnabled: stateInput === 'agent' ? false : true, 
+          isUnread: senderType === 'CUSTOMER', 
+          needsAction: stateInput === 'agent' ? true : needsActionInput, 
+          status: 'ACTIVE', 
+          channelId: targetedChannel ? targetedChannel.id : null,
+          replyToken: replyToken || null, 
           replyTokenAt: replyToken ? new Date() : null
         }
       });
