@@ -317,7 +317,9 @@ app.post('/webhook', async (req, res) => {
       }
     }
 
-    // STEP 4: บันทึกประวัติข้อความ
+    // ==========================================
+    // STEP 4: บันทึกประวัติข้อความ (ก้อนที่ 1: Text)
+    // ==========================================
     const message = await prisma.message.create({
       data: {
         conversationId: conversation.id,
@@ -330,6 +332,20 @@ app.post('/webhook', async (req, res) => {
         isDraftEdited: req.body.is_draft_edited || false
       }
     });
+
+    // 🟢 ถ้าฝั่ง n8n/Bot แนบรูปลิงก์มาด้วย (แยกบันทึกก้อนที่ 2 เป็น Image อัตโนมัติ)
+    if (req.body.image_url && senderType !== 'ADMIN') {
+      await prisma.message.create({
+        data: {
+          conversationId: conversation.id,
+          senderType: senderType, 
+          textContent: `[IMAGE] ${req.body.image_url}`, // ใส่ [IMAGE] นำหน้าให้ UI รู้ว่าเป็นรูป
+          adminId: null,
+          responseTime: null,
+          isInternal: false
+        }
+      });
+    }
 
     // 📡 ยิง Socket.io บอกทุกจอให้อัปเดต UI ทันที
     io.emit('chatUpdate', { conversationId: conversation.id });
